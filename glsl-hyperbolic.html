@@ -1,0 +1,1053 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hyperbolic Display</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            background: #000; 
+            overflow: hidden; 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        }
+        canvas { 
+            display: block; 
+            width: 100vw; 
+            height: 100vh; 
+        }
+        .controls {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.85);
+            backdrop-filter: blur(10px);
+            padding: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            min-width: 200px;
+            color: #fff;
+            font-size: 12px;
+        }
+        .controls h3 {
+            font-size: 13px;
+            margin-bottom: 16px;
+            font-weight: 600;
+        }
+        .control {
+            margin-bottom: 14px;
+        }
+        .control label {
+            display: block;
+            font-size: 11px;
+            color: rgba(255, 255, 255, 0.7);
+            margin-bottom: 6px;
+        }
+        .control-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .control input[type="range"] {
+            flex: 1;
+            height: 4px;
+        }
+        .value {
+            min-width: 45px;
+            text-align: right;
+            font-size: 11px;
+            font-variant-numeric: tabular-nums;
+        }
+        .debug {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            color: white;
+            background: rgba(0,0,0,0.7);
+            padding: 10px;
+            font-family: monospace;
+            font-size: 12px;
+            z-index: 100;
+        }
+        .debug.hidden {
+            display: none;
+        }
+        .controls button {
+            width: 100%;
+            padding: 8px;
+            margin-top: 10px;
+            background: rgba(255,255,255,0.1);
+            color: white;
+            border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 11px;
+        }
+        .controls button:hover {
+            background: rgba(255,255,255,0.2);
+        }
+        .controls select {
+            flex: 1;
+            background: rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.2);
+            color: #fff;
+            padding: 4px;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    <div class="debug" id="debug"></div>
+    <div class="controls">
+        <h3>Controls</h3>
+        <div class="control">
+            <label>Time</label>
+            <div class="control-row">
+                <input type="range" id="timeSpeed" min="0" max="2" step="0.1" value="0.3">
+                <span class="value" id="timeSpeedVal">0.3</span>
+            </div>
+        </div>
+        <div class="control">
+            <label>Zoom</label>
+            <div class="control-row">
+                <input type="range" id="zoom" min="0.1" max="2" step="0.1" value="0.8">
+                <span class="value" id="zoomVal">0.8</span>
+            </div>
+        </div>
+        <div class="control">
+            <label>Curvature</label>
+            <div class="control-row">
+                <input type="range" id="curvature" min="0.1" max="2" step="0.1" value="1.0">
+                <span class="value" id="curvatureVal">1.0</span>
+            </div>
+        </div>
+        <div class="control">
+            <label>Iterations</label>
+            <div class="control-row">
+                <input type="range" id="iterations" min="10" max="100" step="5" value="40">
+                <span class="value" id="iterationsVal">40</span>
+            </div>
+        </div>
+        <div class="control">
+            <label>Brightness</label>
+            <div class="control-row">
+                <input type="range" id="bright" min="0" max="100" step="1" value="50">
+                <span class="value" id="brightVal">50%</span>
+            </div>
+        </div>
+        <div class="control">
+            <label>Display Mode</label>
+            <div class="control-row">
+                <select id="displayMode" style="flex: 1; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: #fff; padding: 4px; border-radius: 4px;">
+                    <option value="0">Hyperbolic</option>
+                    <option value="1">Parabolic</option>
+                    <option value="2">Elliptical</option>
+                </select>
+            </div>
+        </div>
+        <div class="control">
+            <label>Hue</label>
+            <div class="control-row">
+                <input type="range" id="hue" min="0" max="1" step="0.01" value="0">
+                <span class="value" id="hueVal">0.00</span>
+            </div>
+        </div>
+        <div class="control">
+            <label>Color Scheme</label>
+            <div class="control-row">
+                <select id="colorScheme">
+                    <option value="monochromatic">Monochromatic</option>
+                    <option value="analogous">Analogous</option>
+                    <option value="complementary">Complementary</option>
+                    <option value="splitComplementary">Split Complementary</option>
+                    <option value="triadic">Triadic</option>
+                    <option value="square">Square</option>
+                    <option value="rectangular">Rectangular</option>
+                </select>
+            </div>
+        </div>
+        <div class="control">
+            <label>Color Range</label>
+            <div class="control-row">
+                <input type="range" id="colorRange" min="0" max="2" step="0.1" value="1.0">
+                <span class="value" id="colorRangeVal">1.0</span>
+            </div>
+        </div>
+        <div class="control">
+            <label>Fluid Intensity</label>
+            <div class="control-row">
+                <input type="range" id="fluid" min="0" max="3" step="0.1" value="1.0">
+                <span class="value" id="fluidVal">1.0</span>
+            </div>
+        </div>
+        <div class="control">
+            <label>Flow Speed</label>
+            <div class="control-row">
+                <input type="range" id="flowSpeed" min="0" max="3" step="0.1" value="1.0">
+                <span class="value" id="flowVal">1.0</span>
+            </div>
+        </div>
+        <div class="control">
+            <label>Viscosity</label>
+            <div class="control-row">
+                <input type="range" id="viscosity" min="0" max="1" step="0.05" value="0.3">
+                <span class="value" id="viscVal">0.3</span>
+            </div>
+        </div>
+        <div class="control">
+            <label>Camera View</label>
+            <div class="control-row">
+                <select id="cameraView">
+                    <option value="custom">Custom</option>
+                    <option value="front" selected>Front</option>
+                    <option value="back">Back</option>
+                    <option value="top">Top</option>
+                    <option value="bottom">Bottom</option>
+                    <option value="left">Left</option>
+                    <option value="right">Right</option>
+                    <option value="isometric">Isometric</option>
+                </select>
+            </div>
+        </div>
+        <button id="hideGridBtn">Hide Grid</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+        if (!gl) throw new Error('WebGL not supported');
+
+        function resize() {
+            const dpr = window.devicePixelRatio || 1;
+            canvas.width = window.innerWidth * dpr;
+            canvas.height = window.innerHeight * dpr;
+            canvas.style.width = window.innerWidth + 'px';
+            canvas.style.height = window.innerHeight + 'px';
+            gl.viewport(0, 0, canvas.width, canvas.height);
+        }
+        resize();
+        window.addEventListener('resize', resize);
+
+        const vs = `attribute vec2 a_pos; varying vec2 v_uv; void main() { gl_Position = vec4(a_pos,0,1); v_uv = a_pos*0.5+0.5; }`;
+
+        // Hyperbolic display using Poincaré disk model
+        const fs = `
+            precision highp float;
+            uniform float u_time;
+            uniform float u_zoom;
+            uniform float u_curvature;
+            uniform float u_iterations;
+            uniform float u_bright;
+            uniform float u_displayMode;
+            uniform float u_hue;
+            uniform mat3 u_rotation3D;
+            uniform mat3 u_cameraRotation;
+            uniform vec2 u_resolution;
+            uniform float u_colorScheme;
+            uniform float u_colorRange;
+            uniform float u_fluidIntensity;
+            uniform float u_flowSpeed;
+            uniform float u_viscosity;
+            uniform float u_showGrid;
+            varying vec2 v_uv;
+            
+            mat2 rotate2D(float angle) {
+                float c = cos(angle);
+                float s = sin(angle);
+                return mat2(c, -s, s, c);
+            }
+            
+            // Improved noise function for fluid simulation
+            float noise(vec2 p) {
+                return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
+            }
+            
+            // Smooth noise
+            float smoothNoise(vec2 p) {
+                vec2 i = floor(p);
+                vec2 f = fract(p);
+                f = f * f * (3.0 - 2.0 * f);
+                
+                float a = noise(i);
+                float b = noise(i + vec2(1.0, 0.0));
+                float c = noise(i + vec2(0.0, 1.0));
+                float d = noise(i + vec2(1.0, 1.0));
+                
+                return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+            }
+            
+            // Curl noise - creates divergence-free flow fields (proper fluid flow)
+            vec2 curlNoise(vec2 p, float time) {
+                float eps = 0.01;
+                float n1 = smoothNoise(p + vec2(0.0, eps));
+                float n2 = smoothNoise(p + vec2(0.0, -eps));
+                float n3 = smoothNoise(p + vec2(eps, 0.0));
+                float n4 = smoothNoise(p + vec2(-eps, 0.0));
+                
+                float curl = (n4 - n3 - (n2 - n1)) / (2.0 * eps);
+                return vec2(n2 - n1, n3 - n4) / (2.0 * eps);
+            }
+            
+            // Modern fluid flow field with advection and pressure effects
+            vec2 fluidFlow(vec2 uv, float time) {
+                // Base flow from curl noise (divergence-free, like real fluids)
+                vec2 flow = vec2(0.0);
+                
+                // Multiple octaves for complex, layered flow
+                float scale1 = 1.2;
+                float scale2 = 2.4;
+                float scale3 = 4.8;
+                float scale4 = 9.6;
+                
+                // Animated positions with different speeds for organic motion
+                vec2 p1 = uv * scale1 + vec2(time * u_flowSpeed * 0.15, time * u_flowSpeed * 0.12);
+                vec2 p2 = uv * scale2 + vec2(time * u_flowSpeed * 0.25, -time * u_flowSpeed * 0.22);
+                vec2 p3 = uv * scale3 + vec2(-time * u_flowSpeed * 0.35, time * u_flowSpeed * 0.28);
+                vec2 p4 = uv * scale4 + vec2(time * u_flowSpeed * 0.45, time * u_flowSpeed * 0.38);
+                
+                // Curl noise creates proper vortices (divergence-free flow)
+                flow += curlNoise(p1, time) * 0.5;
+                flow += curlNoise(p2, time) * 0.35;
+                flow += curlNoise(p3, time) * 0.2;
+                flow += curlNoise(p4, time) * 0.1;
+                
+                // Large-scale vortices - creates major swirling patterns
+                float dist = length(uv);
+                float angle = dist * 2.0 + time * u_flowSpeed * 0.4;
+                mat2 swirl = rotate2D(angle);
+                
+                // Radial flow with pressure waves
+                float pressureWave = sin(dist * 5.0 - time * u_flowSpeed * 0.6) * 
+                                    cos(dist * 3.0 + time * u_flowSpeed * 0.3);
+                vec2 radialFlow = normalize(uv) * pressureWave * 0.4;
+                flow += swirl * radialFlow;
+                
+                // Advection - fluid follows itself (key to realistic motion)
+                vec2 advection = flow * 0.3;
+                vec2 advectedPos = uv - advection * 0.1;
+                vec2 advectedFlow = curlNoise(advectedPos * scale1, time) * 0.2;
+                flow += advectedFlow;
+                
+                // Pressure gradients - creates expansion/contraction
+                float pressure = smoothNoise(uv * 2.0 + time * u_flowSpeed * 0.2);
+                vec2 pressureGrad = vec2(
+                    smoothNoise((uv + vec2(0.01, 0.0)) * 2.0 + time * u_flowSpeed * 0.2) - pressure,
+                    smoothNoise((uv + vec2(0.0, 0.01)) * 2.0 + time * u_flowSpeed * 0.2) - pressure
+                ) * 0.3;
+                flow += pressureGrad;
+                
+                // Apply viscosity (damping/smoothness) - more effective range
+                // At 0: full flow, at 1: very damped (90% reduction)
+                float viscosityFactor = 1.0 - u_viscosity * 0.9;
+                flow *= viscosityFactor;
+                
+                // Scale by intensity - make it more effective
+                // Fluid intensity now has stronger impact on flow magnitude
+                return flow * u_fluidIntensity * 5.0;
+            }
+            
+            // Manual implementations of hyperbolic functions
+            float tanh_impl(float x) {
+                float exp2x = exp(2.0 * x);
+                return (exp2x - 1.0) / (exp2x + 1.0);
+            }
+            
+            float atanh_impl(float x) {
+                return 0.5 * log((1.0 + x) / (1.0 - x));
+            }
+            
+            // Convert 2D point to 3D sphere coordinates
+            vec3 toSphere(vec2 p, float mode) {
+                float r = length(p);
+                
+                // Different geometries for sphere mapping
+                float sphereR;
+                if (mode < 0.5) {
+                    // Hyperbolic
+                    if (r >= 0.999) r = 0.999;
+                    float rHyper = atanh_impl(r) * u_curvature;
+                    sphereR = tanh_impl(rHyper);
+                } else if (mode < 1.5) {
+                    // Parabolic
+                    float rPara = r * r * u_curvature;
+                    sphereR = sqrt(rPara / (1.0 + rPara)) * u_curvature;
+                    sphereR = clamp(sphereR, 0.0, 0.999);
+                } else {
+                    // Elliptical
+                    float rEllip = asin(clamp(r, 0.0, 0.999)) * u_curvature;
+                    sphereR = sin(rEllip);
+                    sphereR = clamp(sphereR, 0.0, 0.999);
+                }
+                
+                // Map to sphere surface
+                float theta = atan(p.y, p.x);
+                float phi = acos(sphereR);
+                
+                // Convert to 3D coordinates
+                float x = sin(phi) * cos(theta);
+                float y = sin(phi) * sin(theta);
+                float z = cos(phi);
+                
+                return vec3(x, y, z);
+            }
+            
+            // Convert 3D sphere point back to 2D UV for pattern sampling
+            // Applies camera rotation (moves grid pole) and grid rotation (pattern rotation)
+            vec2 sphereToUV(vec3 spherePos) {
+                // Apply camera rotation FIRST - this moves the grid's pole
+                // Rotate the sphere coordinates so a different point becomes the pole (z=1)
+                vec3 cameraRotated = u_cameraRotation * spherePos;
+                
+                // Apply grid rotation (pattern rotation on the sphere)
+                vec3 gridRotated = u_rotation3D * cameraRotated;
+                
+                // Convert back to 2D using stereographic projection
+                // The pole is at z=1, so rotating before projection moves which point maps to center
+                float denom = 1.0 + gridRotated.z;
+                if (abs(denom) < 0.001) return vec2(0.0);
+                return vec2(gridRotated.x / denom, gridRotated.y / denom);
+            }
+            
+            // Fluid-responsive wave pattern - returns normalized 0-1 value with full range
+            float formulaPattern(vec2 uv, float time) {
+                // Scale UV for pattern density - iterations controls detail level
+                float detailScale = u_iterations / 40.0; // Normalize to 40 as baseline
+                vec2 p = uv * 0.01 * detailScale;
+                
+                // Create multiple independent patterns that cover full range
+                // Iterations affects the frequency/detail of patterns
+                float freq1 = 20.0 * detailScale;
+                float freq2 = 15.0 * detailScale;
+                float freq3 = 18.0 * detailScale;
+                
+                float pattern1 = sin(length(p) * freq1 - time * 0.5) * 0.5 + 0.5;
+                float pattern2 = sin(p.x * freq2 + p.y * (freq2 * 0.8) + time * 0.3) * 0.5 + 0.5;
+                float pattern3 = sin(p.y * freq3 - p.x * (freq3 * 0.55) - time * 0.4) * 0.5 + 0.5;
+                
+                // Radial ripples - iterations affects ripple density
+                float dist = length(p);
+                float ripple = sin(dist * 30.0 * detailScale - time * 0.6) * 0.5 + 0.5;
+                
+                // Add noise for texture - iterations affects noise detail
+                float noise = smoothNoise(p * 8.0 * detailScale + time * 0.2);
+                
+                // Combine with multiplication to create more contrast and full range
+                float pattern = pattern1 * pattern2 * 0.7 + pattern3 * 0.3;
+                pattern = mix(pattern, ripple, 0.3);
+                pattern = mix(pattern, noise, 0.4);
+                
+                // Use a combination that ensures full range coverage
+                // Add absolute differences to create more variation
+                pattern = abs(pattern - 0.5) * 2.0; // Creates 0-1 range with more extremes
+                pattern = 1.0 - pattern; // Invert to get full range
+                
+                // Add back some of the original to ensure smooth transitions
+                float original = (pattern1 + pattern2 + pattern3) / 3.0;
+                pattern = mix(pattern, original, 0.5);
+                
+                // Final normalization
+                return clamp(pattern, 0.0, 1.0);
+            }
+            
+            // Procedural color palette
+            vec3 palette(float t) {
+                vec3 a = vec3(0.8, 0.5, 0.4);
+                vec3 b = vec3(0.2, 0.4, 0.2);
+                vec3 c = vec3(2.0, 1.0, 1.0);
+                vec3 d = vec3(0.00, 0.25, 0.25);
+                return a + b * cos(6.28318 * (c * t + d));
+            }
+            
+            // Get color scheme hues based on base hue - returns 3 or 4 hues
+            vec3 getColorSchemeHues3(float baseHue, float scheme) {
+                // scheme: 0=monochromatic, 1=analogous, 2=complementary, 3=splitComplementary, 4=triadic
+                vec3 hues = vec3(0.0);
+                
+                if (scheme < 0.5) {
+                    // Monochromatic - same hue but we'll vary saturation in the mapping
+                    hues = vec3(mod(baseHue - 0.02, 1.0), baseHue, mod(baseHue + 0.02, 1.0));
+                } else if (scheme < 1.5) {
+                    // Analogous - adjacent hues (30° apart = 0.083)
+                    hues = vec3(mod(baseHue - 0.083, 1.0), baseHue, mod(baseHue + 0.083, 1.0));
+                } else if (scheme < 2.5) {
+                    // Complementary - base and complement, add a third between them
+                    float comp = mod(baseHue + 0.5, 1.0);
+                    float mid = mod(baseHue + 0.25, 1.0);
+                    hues = vec3(baseHue, mid, comp);
+                } else if (scheme < 3.5) {
+                    // Split Complementary - base + two adjacent to complement
+                    float comp = mod(baseHue + 0.5, 1.0);
+                    hues = vec3(baseHue, mod(comp - 0.083, 1.0), mod(comp + 0.083, 1.0));
+                } else {
+                    // Triadic - three evenly spaced hues (120° apart = 0.333)
+                    hues = vec3(baseHue, mod(baseHue + 0.333, 1.0), mod(baseHue + 0.667, 1.0));
+                }
+                
+                return hues;
+            }
+            
+            // Get 4 color scheme hues for Square and Rectangular
+            vec4 getColorSchemeHues4(float baseHue, float scheme) {
+                vec4 hues = vec4(0.0);
+                
+                if (scheme < 5.5) {
+                    // Square - four evenly spaced hues (90° apart = 0.25)
+                    hues = vec4(
+                        baseHue,
+                        mod(baseHue + 0.25, 1.0),
+                        mod(baseHue + 0.5, 1.0),
+                        mod(baseHue + 0.75, 1.0)
+                    );
+                } else {
+                    // Rectangular (Tetradic) - two complementary pairs (base, base+30°, complement, complement+30°)
+                    float comp = mod(baseHue + 0.5, 1.0);
+                    hues = vec4(
+                        baseHue,
+                        mod(baseHue + 0.083, 1.0), // 30° from base
+                        comp,
+                        mod(comp + 0.083, 1.0) // 30° from complement
+                    );
+                }
+                
+                return hues;
+            }
+            
+            // Convert hue (0-1) to RGB
+            vec3 hueToRGB(float h) {
+                h = mod(h, 1.0);
+                // Use a lower chroma value to prevent blowout when combined with brightness
+                float c = 0.8; // Reduced from 1.0 to prevent white blowout
+                float x = c * (1.0 - abs(mod(h * 6.0, 2.0) - 1.0));
+                vec3 rgb;
+                
+                if (h < 1.0/6.0) rgb = vec3(c, x, 0.0);
+                else if (h < 2.0/6.0) rgb = vec3(x, c, 0.0);
+                else if (h < 3.0/6.0) rgb = vec3(0.0, c, x);
+                else if (h < 4.0/6.0) rgb = vec3(0.0, x, c);
+                else if (h < 5.0/6.0) rgb = vec3(x, 0.0, c);
+                else rgb = vec3(c, 0.0, x);
+                
+                // Normalize to prevent values > 1.0
+                return clamp(rgb, 0.0, 1.0);
+            }
+            
+            // Rotate hue in RGB space
+            vec3 rotateHue(vec3 rgb, float hueShift) {
+                // Convert to HSV
+                float maxVal = max(max(rgb.r, rgb.g), rgb.b);
+                float minVal = min(min(rgb.r, rgb.g), rgb.b);
+                float delta = maxVal - minVal;
+                
+                float hue = 0.0;
+                if (delta > 0.001) {
+                    if (maxVal == rgb.r) {
+                        hue = mod((rgb.g - rgb.b) / delta + (rgb.g < rgb.b ? 6.0 : 0.0), 6.0) / 6.0;
+                    } else if (maxVal == rgb.g) {
+                        hue = ((rgb.b - rgb.r) / delta + 2.0) / 6.0;
+                    } else {
+                        hue = ((rgb.r - rgb.g) / delta + 4.0) / 6.0;
+                    }
+                }
+                
+                // Apply hue shift
+                hue = mod(hue + hueShift, 1.0);
+                
+                // Convert back to RGB
+                float c = delta;
+                float x = c * (1.0 - abs(mod(hue * 6.0, 2.0) - 1.0));
+                float m = minVal;
+                
+                vec3 rgbOut;
+                if (hue < 1.0/6.0) rgbOut = vec3(c, x, 0.0);
+                else if (hue < 2.0/6.0) rgbOut = vec3(x, c, 0.0);
+                else if (hue < 3.0/6.0) rgbOut = vec3(0.0, c, x);
+                else if (hue < 4.0/6.0) rgbOut = vec3(0.0, x, c);
+                else if (hue < 5.0/6.0) rgbOut = vec3(x, 0.0, c);
+                else rgbOut = vec3(c, 0.0, x);
+                
+                return rgbOut + vec3(m);
+            }
+            
+            void main() {
+                // Start with normalized UV coordinates (0-1 range)
+                vec2 baseUV = v_uv;
+                vec2 uv = v_uv - 0.5;  // Now -0.5 to 0.5
+                
+                // Scale to -1 to 1 range for proper unit circle
+                uv *= 2.0;  // Now -1.0 to 1.0
+                
+                // Calculate aspect ratio
+                float aspect = u_resolution.x / u_resolution.y;
+                
+                // Check distance with aspect correction
+                vec2 circleUV = vec2(uv.x * aspect, uv.y);
+                float screenDist = length(circleUV);
+                
+                // Hard clip - nothing outside the circle
+                if (screenDist >= 1.0) {
+                    gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
+                    return;
+                }
+                
+                // Apply aspect correction for 3D calculations
+                uv.x *= aspect;
+                
+                // Normalize to unit circle
+                float dist = length(uv);
+                if (dist > 0.999) {
+                    dist = 0.999;
+                    uv = normalize(uv) * dist;
+                }
+                
+                // Scale for zoom
+                uv *= u_zoom;
+                dist = length(uv);
+                if (dist > 0.999) {
+                    dist = 0.999;
+                    uv = normalize(uv) * dist;
+                }
+                
+                // Convert UV to sphere position (view direction)
+                vec3 spherePos = toSphere(uv, u_displayMode);
+                
+                // Calculate distance from center
+                float distFromCenter = length(spherePos);
+                
+                // Sphere parameters - smooth glass snowglobe
+                float sphereRadius = 0.90;
+                
+                // Check if we're inside the visible sphere area
+                if (screenDist >= 1.0) {
+                    gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
+                    return;
+                }
+                
+                // Get fluid distortion
+                vec2 fluidDistortion = fluidFlow(baseUV, u_time);
+                
+                // Calculate inside depth
+                float insideDepth = clamp(distFromCenter / sphereRadius, 0.0, 1.0); // 0 = center, 1 = surface
+                
+                // insidePos: position for lighting/visual effects
+                vec3 insidePos = spherePos * (0.1 + insideDepth * 0.8);
+                
+                // For pattern sampling: use sphere position
+                // Camera rotation (applied in sphereToUV) moves the grid pole
+                // Grid rotation (applied in sphereToUV) rotates the pattern on the sphere
+                vec3 patternPos = spherePos * (0.1 + insideDepth * 0.8);
+                
+                // Convert inside position to UV for fluid sampling
+                // sphereToUV applies camera rotation (moves pole) then grid rotation (rotates pattern)
+                vec2 insideUV = sphereToUV(patternPos);
+                
+                // Sample fractal at INSIDE position - use smoother, lower frequency
+                float insideFractal = formulaPattern(insideUV * u_resolution.y * 0.08, u_time);
+                
+                // Fractal drives fluid flow
+                vec2 insideFractalFlow = vec2(
+                    sin(insideFractal * 6.28318 + u_time * u_flowSpeed * 0.5),
+                    cos(insideFractal * 6.28318 - u_time * u_flowSpeed * 0.3)
+                ) * insideFractal * 0.3;
+                
+                // Combine with fluid flow - make fluid intensity more effective
+                vec2 insideCombinedFlow = fluidDistortion * (0.3 + u_fluidIntensity * 0.4) + insideFractalFlow * (u_fluidIntensity * 1.5);
+                vec2 insideFluidUV = insideUV + insideCombinedFlow * (0.2 + u_fluidIntensity * 0.4);
+                float insideFluidFractal = formulaPattern(insideFluidUV * u_resolution.y * 0.08, u_time);
+                
+                // Fluid density - make intensity more effective, ensure minimum visibility
+                float insideFluidDensity = insideFluidFractal * (0.3 + u_fluidIntensity * 0.7) + 0.15;
+                
+                // Map inside fractal to color
+                float insidePatternValue = insideFluidFractal;
+                insidePatternValue = (insidePatternValue - 0.5) * u_colorRange + 0.5;
+                insidePatternValue = clamp(insidePatternValue, 0.0, 1.0);
+                
+                vec3 fluidCol;
+                if (u_colorScheme < 0.5) {
+                    float sat = insidePatternValue * 0.8 + 0.2;
+                    float bright = insidePatternValue * 0.9 + 0.1;
+                    fluidCol = hueToRGB(u_hue) * bright;
+                    fluidCol = mix(vec3(dot(fluidCol, vec3(0.299, 0.587, 0.114))), fluidCol, sat);
+                } else if (u_colorScheme < 4.5) {
+                    vec3 schemeHues = getColorSchemeHues3(u_hue, u_colorScheme);
+                    vec3 color1 = hueToRGB(schemeHues.x);
+                    vec3 color2 = hueToRGB(schemeHues.y);
+                    vec3 color3 = hueToRGB(schemeHues.z);
+                    float segment = insidePatternValue * 3.0;
+                    if (segment < 1.0) {
+                        fluidCol = mix(color1, color2, segment);
+                    } else if (segment < 2.0) {
+                        fluidCol = mix(color2, color3, segment - 1.0);
+                    } else {
+                        fluidCol = mix(color3, color1, segment - 2.0);
+                    }
+                } else {
+                    vec4 schemeHues = getColorSchemeHues4(u_hue, u_colorScheme);
+                    vec3 color1 = hueToRGB(schemeHues.x);
+                    vec3 color2 = hueToRGB(schemeHues.y);
+                    vec3 color3 = hueToRGB(schemeHues.z);
+                    vec3 color4 = hueToRGB(schemeHues.w);
+                    float segment = insidePatternValue * 4.0;
+                    if (segment < 1.0) {
+                        fluidCol = mix(color1, color2, segment);
+                    } else if (segment < 2.0) {
+                        fluidCol = mix(color2, color3, segment - 1.0);
+                    } else if (segment < 3.0) {
+                        fluidCol = mix(color3, color4, segment - 2.0);
+                    } else {
+                        fluidCol = mix(color4, color1, segment - 3.0);
+                    }
+                }
+                
+                // Render smooth fluid with internal light source
+                // Brightness is a percentage (0-100%) controlling internal light intensity
+                float brightnessPercent = u_bright / 100.0; // 0.0 to 1.0
+                
+                // Internal light source position (at center of sphere)
+                vec3 lightPos = vec3(0.0, 0.0, 0.0);
+                
+                // Calculate distance from current position to light source
+                float distToLight = length(insidePos - lightPos);
+                
+                // Light falloff: closer to light = brighter, further = dimmer
+                // Use inverse square law with some tweaking for artistic effect
+                float maxDist = sphereRadius * 0.9; // Maximum distance in sphere
+                float normalizedDist = clamp(distToLight / maxDist, 0.0, 1.0);
+                
+                // Light intensity falls off with distance (closer = brighter)
+                // Brightness controls the overall light intensity
+                float lightIntensity = (1.0 - normalizedDist * 0.7) * brightnessPercent;
+                lightIntensity = pow(lightIntensity, 1.5); // Softer falloff
+                
+                // Base fluid color illuminated by internal light
+                // The light illuminates the fluid from within
+                vec3 baseColor = fluidCol * insideFluidDensity;
+                
+                // Apply internal lighting: fluid is illuminated from the center
+                fluidCol = baseColor * lightIntensity * 20.0;
+                
+                // Add some emission for glow effect in brighter areas
+                float emission = pow(insideFluidDensity, 0.8) * lightIntensity * brightnessPercent * 3.0;
+                fluidCol += fluidCol * emission;
+                
+                // Add smooth flow visualization (lower frequency for smoothness)
+                float flowStrength = smoothstep(0.0, 1.5, length(insideCombinedFlow));
+                vec3 flowColor = vec3(
+                    sin(insideCombinedFlow.x * 5.0 + u_time * u_flowSpeed * 2.0) * 0.5 + 0.5,
+                    cos(insideCombinedFlow.y * 4.0 + u_time * u_flowSpeed * 1.5) * 0.5 + 0.5,
+                    sin(insideCombinedFlow.x * 6.0 - insideCombinedFlow.y * 3.0 + u_time * u_flowSpeed * 2.5) * 0.5 + 0.5
+                ) * flowStrength * 0.3;
+                
+                fluidCol += flowColor * insideFluidDensity * 0.4;
+                
+                // Depth-based variation
+                float depthFactor = insideDepth;
+                fluidCol *= (0.5 + depthFactor * 0.5);
+                
+                // Clamp final color to prevent blowout
+                fluidCol = clamp(fluidCol, 0.0, 1.0);
+                
+                // Add subtle smooth motion
+                fluidCol += sin(insideFluidFractal * 6.0 + u_time * u_flowSpeed) * 0.03;
+                
+                // Smooth fade at edges - go all the way to the edge
+                // Fade only in the last 10% near the edge for smooth transition
+                float edgeFade = 1.0 - smoothstep(0.9, 1.0, screenDist);
+                
+                // Render fluid inside with edge fade
+                vec3 col = fluidCol * edgeFade;
+                
+                // Smooth tone mapping for glass snowglobe effect
+                col = col / (1.0 + col * 0.1);
+                col = pow(max(col, vec3(0.0)), vec3(0.9));
+                col *= 2.0;
+                
+                gl_FragColor = vec4(col, 1.0);
+            }
+        `;
+
+        function compileShader(src, type) {
+            const s = gl.createShader(type);
+            gl.shaderSource(s, src);
+            gl.compileShader(s);
+            if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+                const err = gl.getShaderInfoLog(s);
+                alert('Shader error: ' + err);
+                console.error('Shader source:', src);
+                return null;
+            }
+            return s;
+        }
+
+        const vsh = compileShader(vs, gl.VERTEX_SHADER);
+        const fsh = compileShader(fs, gl.FRAGMENT_SHADER);
+        const prog = gl.createProgram();
+        gl.attachShader(prog, vsh);
+        gl.attachShader(prog, fsh);
+        gl.linkProgram(prog);
+
+        const buf = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1,1,-1,-1,1,1,1]), gl.STATIC_DRAW);
+
+        const locs = {
+            pos: gl.getAttribLocation(prog, 'a_pos'),
+            time: gl.getUniformLocation(prog, 'u_time'),
+            zoom: gl.getUniformLocation(prog, 'u_zoom'),
+            curvature: gl.getUniformLocation(prog, 'u_curvature'),
+            iterations: gl.getUniformLocation(prog, 'u_iterations'),
+            bright: gl.getUniformLocation(prog, 'u_bright'),
+            displayMode: gl.getUniformLocation(prog, 'u_displayMode'),
+            hue: gl.getUniformLocation(prog, 'u_hue'),
+            rotation3D: gl.getUniformLocation(prog, 'u_rotation3D'),
+            cameraRotation: gl.getUniformLocation(prog, 'u_cameraRotation'),
+            res: gl.getUniformLocation(prog, 'u_resolution'),
+            colorScheme: gl.getUniformLocation(prog, 'u_colorScheme'),
+            colorRange: gl.getUniformLocation(prog, 'u_colorRange'),
+            fluidIntensity: gl.getUniformLocation(prog, 'u_fluidIntensity'),
+            flowSpeed: gl.getUniformLocation(prog, 'u_flowSpeed'),
+            viscosity: gl.getUniformLocation(prog, 'u_viscosity'),
+            showGrid: gl.getUniformLocation(prog, 'u_showGrid')
+        };
+        
+        // Debug: Check if camera rotation uniform was found
+        if (locs.cameraRotation === null) {
+            console.error('Camera rotation uniform not found! Check shader.');
+        } else {
+            console.log('Camera rotation uniform found at location:', locs.cameraRotation);
+        }
+
+        // 3D rotation using Euler angles
+        function rotationMatrix3D(pitch, yaw, roll) {
+            const cp = Math.cos(pitch);
+            const sp = Math.sin(pitch);
+            const cy = Math.cos(yaw);
+            const sy = Math.sin(yaw);
+            const cr = Math.cos(roll);
+            const sr = Math.sin(roll);
+            
+            return new Float32Array([
+                cy * cr, -cy * sr * cp + sy * sp, cy * sr * sp + sy * cp,
+                sr, cr * cp, -cr * sp,
+                -sy * cr, sy * sr * cp + cy * sp, -sy * sr * sp + cy * cp
+            ]);
+        }
+
+        let time = 0;
+        let rotation = { pitch: 0, yaw: 0, roll: 0 }; // Grid rotation (current behavior)
+        let cameraRotation = { pitch: 0, yaw: 0, roll: 0 }; // Perspective/camera rotation
+        let isDragging = false;
+        let isShiftPressed = false;
+        let lastMouse = { x: 0, y: 0 };
+        const debug = document.getElementById('debug');
+        let showGrid = true;
+        let colorScheme = 0; // 0=monochromatic, 1=analogous, 2=complementary, 3=splitComplementary, 4=triadic, 5=square, 6=rectangular
+        
+        // Color scheme mapping
+        const colorSchemes = {
+            monochromatic: 0,
+            analogous: 1,
+            complementary: 2,
+            splitComplementary: 3,
+            triadic: 4,
+            square: 5,
+            rectangular: 6
+        };
+        
+        let params = {
+            timeSpeed: 0.3,
+            zoom: 0.8,
+            curvature: 1.0,
+            iterations: 40,
+            bright: 50,  // New range: 0-100%, default 50% (moderate glow)
+            displayMode: 0,
+            hue: 0.0,
+            colorRange: 1.0,
+            fluidIntensity: 1.0,  // New range: 0-3, default 1.0 (more effective)
+            flowSpeed: 1.0,
+            viscosity: 0.3
+        };
+
+        ['timeSpeed', 'zoom', 'curvature', 'iterations', 'bright', 'hue'].forEach(id => {
+            const el = document.getElementById(id);
+            const val = document.getElementById(id + 'Val');
+            el.addEventListener('input', (e) => {
+                params[id] = parseFloat(e.target.value);
+                if (id === 'bright') {
+                    val.textContent = params[id].toFixed(0) + '%';
+                } else {
+                    val.textContent = params[id].toFixed(id === 'iterations' ? 0 : 2);
+                }
+            });
+        });
+
+        const displayModeEl = document.getElementById('displayMode');
+        displayModeEl.addEventListener('change', (e) => {
+            params.displayMode = parseFloat(e.target.value);
+        });
+        
+        const colorSchemeEl = document.getElementById('colorScheme');
+        colorSchemeEl.addEventListener('change', (e) => {
+            const scheme = e.target.value;
+            colorScheme = colorSchemes[scheme];
+        });
+        
+        const hideGridEl = document.getElementById('hideGridBtn');
+        hideGridEl.addEventListener('click', () => {
+            showGrid = !showGrid;
+            debug.classList.toggle('hidden', !showGrid);
+            hideGridEl.textContent = showGrid ? 'Hide Grid' : 'Show Grid';
+        });
+        
+        // Camera view presets
+        const cameraViews = {
+            custom: null, // No preset, use current cameraRotation
+            front: { pitch: 0, yaw: 0, roll: 0 },
+            back: { pitch: 0, yaw: Math.PI, roll: 0 },
+            top: { pitch: -Math.PI / 2, yaw: 0, roll: 0 },
+            bottom: { pitch: Math.PI / 2, yaw: 0, roll: 0 },
+            left: { pitch: 0, yaw: Math.PI / 2, roll: 0 },
+            right: { pitch: 0, yaw: -Math.PI / 2, roll: 0 },
+            isometric: { pitch: -Math.PI / 4, yaw: Math.PI / 4, roll: 0 }
+        };
+        
+        const cameraViewEl = document.getElementById('cameraView');
+        cameraViewEl.addEventListener('change', (e) => {
+            const view = e.target.value;
+            const preset = cameraViews[view];
+            if (preset) {
+                cameraRotation.pitch = preset.pitch;
+                cameraRotation.yaw = preset.yaw;
+                cameraRotation.roll = preset.roll;
+            }
+        });
+        
+        ['fluid', 'flowSpeed', 'viscosity', 'colorRange'].forEach(id => {
+            const el = document.getElementById(id);
+            const val = document.getElementById(id + 'Val');
+            el.addEventListener('input', (e) => {
+                params[id] = parseFloat(e.target.value);
+                val.textContent = params[id].toFixed(2);
+            });
+        });
+
+        // Mouse rotation
+        // Track shift key state
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'Shift') {
+                isShiftPressed = true;
+            }
+        });
+        
+        window.addEventListener('keyup', (e) => {
+            if (e.key === 'Shift') {
+                isShiftPressed = false;
+            }
+        });
+
+        canvas.addEventListener('mousedown', (e) => {
+            isDragging = true;
+            lastMouse.x = e.clientX;
+            lastMouse.y = e.clientY;
+        });
+
+        canvas.addEventListener('mousemove', (e) => {
+            if (isDragging) {
+                const dx = (e.clientX - lastMouse.x) / canvas.width;
+                const dy = (e.clientY - lastMouse.y) / canvas.height;
+                
+                // Check shift key directly from the event (more reliable)
+                if (e.shiftKey) {
+                    // Shift + Click: Rotate camera perspective
+                    // Invert dx/dy to make dragging feel natural (drag right = rotate right)
+                    cameraRotation.yaw -= dx * 3.0;
+                    cameraRotation.pitch += dy * 3.0;
+                    
+                    // Clamp pitch to avoid gimbal lock
+                    cameraRotation.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, cameraRotation.pitch));
+                    
+                    // Switch to custom view when manually rotating
+                    cameraViewEl.value = 'custom';
+                    
+                    // Debug
+                    console.log('Camera rotation updated:', {
+                        pitch: cameraRotation.pitch.toFixed(3),
+                        yaw: cameraRotation.yaw.toFixed(3),
+                        roll: cameraRotation.roll.toFixed(3)
+                    });
+                } else {
+                    // Normal Click: Rotate grid mapping (existing behavior)
+                    rotation.yaw += dx * 3.0;
+                    rotation.pitch += dy * 3.0;
+                    
+                    // Clamp pitch to avoid gimbal lock
+                    rotation.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, rotation.pitch));
+                }
+                
+                lastMouse.x = e.clientX;
+                lastMouse.y = e.clientY;
+            }
+        });
+
+        canvas.addEventListener('mouseup', () => {
+            isDragging = false;
+        });
+
+        canvas.addEventListener('mouseleave', () => {
+            isDragging = false;
+        });
+
+        function render() {
+            time += 0.016 * params.timeSpeed;
+            
+            gl.useProgram(prog);
+            gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+            gl.enableVertexAttribArray(locs.pos);
+            gl.vertexAttribPointer(locs.pos, 2, gl.FLOAT, false, 0, 0);
+            
+            gl.uniform1f(locs.time, time);
+            gl.uniform1f(locs.zoom, params.zoom);
+            gl.uniform1f(locs.curvature, params.curvature);
+            gl.uniform1f(locs.iterations, params.iterations);
+            gl.uniform1f(locs.bright, params.bright);
+            gl.uniform1f(locs.displayMode, params.displayMode);
+            gl.uniform1f(locs.hue, params.hue);
+            gl.uniform1f(locs.colorScheme, colorScheme);
+            gl.uniform1f(locs.colorRange, params.colorRange);
+            gl.uniform1f(locs.fluidIntensity, params.fluidIntensity);
+            gl.uniform1f(locs.flowSpeed, params.flowSpeed);
+            gl.uniform1f(locs.viscosity, params.viscosity);
+            gl.uniform1f(locs.showGrid, showGrid ? 1.0 : 0.0);
+            
+            // Set grid rotation matrix (pattern rotation)
+            const rotMat = rotationMatrix3D(rotation.pitch, rotation.yaw, rotation.roll);
+            gl.uniformMatrix3fv(locs.rotation3D, false, rotMat);
+            
+            // Set camera rotation matrix (perspective/view direction)
+            const cameraMat = rotationMatrix3D(cameraRotation.pitch, cameraRotation.yaw, cameraRotation.roll);
+            if (locs.cameraRotation !== null) {
+                gl.uniformMatrix3fv(locs.cameraRotation, false, cameraMat);
+            } else {
+                console.error('Camera rotation uniform not found!');
+            }
+            
+            gl.uniform2f(locs.res, canvas.width, canvas.height);
+            
+            // Update debug info
+            if (debug && showGrid) {
+                debug.textContent = `Time: ${time.toFixed(2)}\nRes: ${canvas.width}x${canvas.height}\nZoom: ${params.zoom.toFixed(2)}\nMode: ${params.displayMode === 0 ? 'Hyperbolic' : params.displayMode === 1 ? 'Parabolic' : 'Elliptical'}`;
+            }
+            
+            gl.clearColor(0, 0, 0, 1);
+            gl.clear(gl.COLOR_BUFFER_BIT);
+            gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+            
+            requestAnimationFrame(render);
+        }
+
+        render();
+    </script>
+</body>
+</html>
+
