@@ -732,14 +732,50 @@
                 fluidCol += fluidCol * emission;
                 
                 // Add smooth flow visualization (lower frequency for smoothness)
+                // Use the same color scheme as the main fluid
                 float flowStrength = smoothstep(0.0, 1.5, length(insideCombinedFlow));
-                vec3 flowColor = vec3(
-                    sin(insideCombinedFlow.x * 5.0 + u_time * u_flowSpeed * 2.0) * 0.5 + 0.5,
-                    cos(insideCombinedFlow.y * 4.0 + u_time * u_flowSpeed * 1.5) * 0.5 + 0.5,
-                    sin(insideCombinedFlow.x * 6.0 - insideCombinedFlow.y * 3.0 + u_time * u_flowSpeed * 2.5) * 0.5 + 0.5
-                ) * flowStrength * 0.3;
+                float flowPattern = sin(insideCombinedFlow.x * 5.0 + insideCombinedFlow.y * 4.0 + u_time * u_flowSpeed * 2.0) * 0.5 + 0.5;
+                flowPattern = (flowPattern - 0.5) * u_colorRange + 0.5;
+                flowPattern = clamp(flowPattern, 0.0, 1.0);
                 
-                fluidCol += flowColor * insideFluidDensity * 0.4;
+                vec3 flowColor;
+                if (u_colorScheme < 0.5) {
+                    float sat = flowPattern * 0.8 + 0.2;
+                    float bright = flowPattern * 0.9 + 0.1;
+                    flowColor = hueToRGB(u_hue) * bright;
+                    flowColor = mix(vec3(dot(flowColor, vec3(0.299, 0.587, 0.114))), flowColor, sat);
+                } else if (u_colorScheme < 4.5) {
+                    vec3 schemeHues = getColorSchemeHues3(u_hue, u_colorScheme);
+                    vec3 color1 = hueToRGB(schemeHues.x);
+                    vec3 color2 = hueToRGB(schemeHues.y);
+                    vec3 color3 = hueToRGB(schemeHues.z);
+                    float segment = flowPattern * 3.0;
+                    if (segment < 1.0) {
+                        flowColor = mix(color1, color2, segment);
+                    } else if (segment < 2.0) {
+                        flowColor = mix(color2, color3, segment - 1.0);
+                    } else {
+                        flowColor = mix(color3, color1, segment - 2.0);
+                    }
+                } else {
+                    vec4 schemeHues = getColorSchemeHues4(u_hue, u_colorScheme);
+                    vec3 color1 = hueToRGB(schemeHues.x);
+                    vec3 color2 = hueToRGB(schemeHues.y);
+                    vec3 color3 = hueToRGB(schemeHues.z);
+                    vec3 color4 = hueToRGB(schemeHues.w);
+                    float segment = flowPattern * 4.0;
+                    if (segment < 1.0) {
+                        flowColor = mix(color1, color2, segment);
+                    } else if (segment < 2.0) {
+                        flowColor = mix(color2, color3, segment - 1.0);
+                    } else if (segment < 3.0) {
+                        flowColor = mix(color3, color4, segment - 2.0);
+                    } else {
+                        flowColor = mix(color4, color1, segment - 3.0);
+                    }
+                }
+                
+                fluidCol += flowColor * flowStrength * insideFluidDensity * 0.4;
                 
                 // Depth-based variation
                 float depthFactor = insideDepth;
@@ -811,11 +847,17 @@
             showGrid: gl.getUniformLocation(prog, 'u_showGrid')
         };
         
-        // Debug: Check if camera rotation uniform was found
+        // Debug: Check if uniforms were found
         if (locs.cameraRotation === null) {
             console.error('Camera rotation uniform not found! Check shader.');
         } else {
             console.log('Camera rotation uniform found at location:', locs.cameraRotation);
+        }
+        if (locs.colorScheme === null) {
+            console.error('Color scheme uniform not found! Check shader.');
+        }
+        if (locs.colorRange === null) {
+            console.error('Color range uniform not found! Check shader.');
         }
 
         // 3D rotation using Euler angles
@@ -1013,8 +1055,8 @@
             gl.uniform1f(locs.bright, params.bright);
             gl.uniform1f(locs.displayMode, params.displayMode);
             gl.uniform1f(locs.hue, params.hue);
-            gl.uniform1f(locs.colorScheme, colorScheme);
-            gl.uniform1f(locs.colorRange, params.colorRange);
+            if (locs.colorScheme !== null) gl.uniform1f(locs.colorScheme, colorScheme);
+            if (locs.colorRange !== null) gl.uniform1f(locs.colorRange, params.colorRange);
             gl.uniform1f(locs.fluidIntensity, params.fluidIntensity);
             gl.uniform1f(locs.flowSpeed, params.flowSpeed);
             gl.uniform1f(locs.viscosity, params.viscosity);
