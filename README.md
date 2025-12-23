@@ -15,12 +15,11 @@ Interactive WebGL fractal visualizations with fluid flow effects.
 
 ## Files
 
-- `glsl-hyperbolic.html` - Main interactive fractal visualization
-- `index.html` - Redirects to main page
+- `glsl-fluid-fractals.html` - Main interactive fractal visualization
 
 ## Usage
 
-Open `index.html` or `glsl-hyperbolic.html` in a modern web browser with WebGL support.
+Open `glsl-fluid-fractals.html` in a modern web browser with WebGL support.
 
 ## Controls
 
