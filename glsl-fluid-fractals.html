@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Hyperbolic Display</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -14,7 +14,11 @@
         canvas { 
             display: block; 
             width: 100vw; 
-            height: 100vh; 
+            height: 100vh;
+            touch-action: none;
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            user-select: none;
         }
         .controls {
             position: fixed;
@@ -26,8 +30,53 @@
             border: 1px solid rgba(255, 255, 255, 0.1);
             border-radius: 8px;
             min-width: 200px;
+            max-width: 280px;
+            max-height: calc(100vh - 40px);
+            overflow-y: auto;
+            overflow-x: hidden;
             color: #fff;
             font-size: 12px;
+            z-index: 1000;
+            -webkit-overflow-scrolling: touch;
+        }
+        
+        .controls::-webkit-scrollbar {
+            width: 6px;
+        }
+        
+        .controls::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 3px;
+        }
+        
+        .controls::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 3px;
+        }
+        
+        .controls::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+        
+        .controls-toggle {
+            display: none;
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            width: 48px;
+            height: 48px;
+            background: rgba(0, 0, 0, 0.85);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            color: #fff;
+            font-size: 20px;
+            cursor: pointer;
+            z-index: 1001;
+            align-items: center;
+            justify-content: center;
+            user-select: none;
+            touch-action: manipulation;
         }
         .controls h3 {
             font-size: 13px;
@@ -97,7 +146,173 @@
         }
         .control input[type="range"] {
             flex: 1;
-            height: 4px;
+            height: 6px;
+            -webkit-appearance: none;
+            appearance: none;
+            touch-action: manipulation;
+        }
+        
+        .control input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.9);
+            cursor: pointer;
+            touch-action: manipulation;
+        }
+        
+        .control input[type="range"]::-moz-range-thumb {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.9);
+            cursor: pointer;
+            border: none;
+            touch-action: manipulation;
+        }
+        
+        .control input[type="range"]::-webkit-slider-runnable-track {
+            height: 6px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 3px;
+        }
+        
+        .control input[type="range"]::-moz-range-track {
+            height: 6px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 3px;
+        }
+        
+        .control select {
+            touch-action: manipulation;
+        }
+        
+        .control button {
+            touch-action: manipulation;
+        }
+        
+        /* Tablet styles */
+        @media (max-width: 1024px) and (min-width: 768px) {
+            .controls {
+                max-width: 240px;
+                padding: 16px;
+                font-size: 11px;
+            }
+            
+            .control input[type="range"] {
+                height: 8px;
+            }
+            
+            .control input[type="range"]::-webkit-slider-thumb {
+                width: 18px;
+                height: 18px;
+            }
+            
+            .control input[type="range"]::-moz-range-thumb {
+                width: 18px;
+                height: 18px;
+            }
+        }
+        
+        /* Mobile styles */
+        @media (max-width: 767px) {
+            .controls-toggle {
+                display: flex;
+            }
+            
+            .controls {
+                top: 0;
+                right: 0;
+                left: 0;
+                bottom: 0;
+                max-width: 100%;
+                max-height: 100vh;
+                border-radius: 0;
+                padding: 60px 16px 20px 16px;
+                transform: translateX(100%);
+                transition: transform 0.3s ease-out;
+            }
+            
+            .controls.open {
+                transform: translateX(0);
+            }
+            
+            .controls h3 {
+                font-size: 14px;
+            }
+            
+            .control-section-title {
+                font-size: 12px;
+                padding: 8px 0;
+                margin-bottom: 8px;
+            }
+            
+            .control {
+                margin-bottom: 16px;
+            }
+            
+            .control label {
+                font-size: 12px;
+                margin-bottom: 8px;
+            }
+            
+            .control input[type="range"] {
+                height: 10px;
+            }
+            
+            .control input[type="range"]::-webkit-slider-thumb {
+                width: 24px;
+                height: 24px;
+            }
+            
+            .control input[type="range"]::-moz-range-thumb {
+                width: 24px;
+                height: 24px;
+            }
+            
+            .control select {
+                padding: 8px;
+                font-size: 14px;
+            }
+            
+            #hideGridBtn {
+                padding: 12px;
+                font-size: 14px;
+            }
+        }
+        
+        /* Small mobile styles */
+        @media (max-width: 480px) {
+            .controls-toggle {
+                width: 44px;
+                height: 44px;
+                top: 12px;
+                right: 12px;
+            }
+            
+            .controls {
+                padding: 56px 12px 16px 12px;
+            }
+        }
+        
+        /* Prevent text selection on mobile during interactions */
+        @media (max-width: 767px) {
+            body {
+                -webkit-touch-callout: none;
+                -webkit-user-select: none;
+                user-select: none;
+            }
+            
+            .control-section-title,
+            .control label,
+            .control select,
+            .control input {
+                -webkit-user-select: none;
+                user-select: none;
+            }
+        }
         }
         .value {
             min-width: 45px;
@@ -146,7 +361,8 @@
 <body>
     <canvas id="canvas"></canvas>
     <div class="debug" id="debug"></div>
-    <div class="controls">
+    <button class="controls-toggle" id="controlsToggle" aria-label="Toggle controls">☰</button>
+    <div class="controls" id="controls">
         <h3>Controls</h3>
         
         <!-- View & Display -->
@@ -261,6 +477,13 @@
                     <span class="value" id="brightVal">50%</span>
                 </div>
             </div>
+            <div class="control">
+                <label>Bump Strength</label>
+                <div class="control-row">
+                    <input type="range" id="bumpStrength" min="0" max="1" step="0.05" value="0.3">
+                    <span class="value" id="bumpStrengthVal">0.30</span>
+                </div>
+            </div>
             </div>
         </div>
         
@@ -364,15 +587,21 @@
         if (!gl) throw new Error('WebGL not supported');
 
         function resize() {
-            const dpr = window.devicePixelRatio || 1;
-            canvas.width = window.innerWidth * dpr;
-            canvas.height = window.innerHeight * dpr;
-            canvas.style.width = window.innerWidth + 'px';
-            canvas.style.height = window.innerHeight + 'px';
+            const dpr = Math.min(window.devicePixelRatio || 1, 2); // Cap at 2x for performance on mobile
+            const width = window.innerWidth;
+            const height = window.innerHeight;
+            
+            canvas.width = width * dpr;
+            canvas.height = height * dpr;
+            canvas.style.width = width + 'px';
+            canvas.style.height = height + 'px';
             gl.viewport(0, 0, canvas.width, canvas.height);
         }
         resize();
         window.addEventListener('resize', resize);
+        window.addEventListener('orientationchange', () => {
+            setTimeout(resize, 100); // Delay to ensure new dimensions are available
+        });
 
         // ============================================
         // NAVIER-STOKES FLUID SIMULATION SETUP
@@ -645,6 +874,8 @@
             uniform mat3 u_rotation3D;
             uniform mat3 u_cameraRotation;
             uniform vec2 u_resolution;
+            uniform float u_patternScale;  // Fixed scale factor for consistent pattern size across devices
+            uniform float u_bumpStrength;  // Bump mapping strength (0-1)
             uniform float u_colorScheme;
             uniform float u_colorRange;
             uniform float u_fluidIntensity;
@@ -1480,10 +1711,10 @@
                 // shapeToUV applies camera rotation (moves pole) then grid rotation (rotates pattern)
                 vec2 insideUV = shapeToUV(patternPos);
                 
-                // Sample fractal at INSIDE position - adjust scale based on fractal type
+                // Sample fractal at INSIDE position - use fixed scale for consistency across devices
                 vec2 fractalUV = insideUV;
-                // All procedural patterns use the same scale
-                fractalUV = insideUV * u_resolution.y * 0.08;
+                // Use fixed pattern scale instead of resolution-dependent scaling
+                fractalUV = insideUV * u_patternScale;
                 float insideFractal = formulaPattern(fractalUV, u_time);
                 
                 // Fractal drives fluid flow
@@ -1496,8 +1727,8 @@
                 vec2 insideCombinedFlow = fluidDistortion * (0.3 + u_fluidIntensity * 0.4) + insideFractalFlow * (u_fluidIntensity * 1.5);
                 vec2 insideFluidUV = insideUV + insideCombinedFlow * (0.2 + u_fluidIntensity * 0.4);
                 vec2 fractalFluidUV = insideFluidUV;
-                // All procedural patterns use the same scale
-                fractalFluidUV = insideFluidUV * u_resolution.y * 0.08;
+                // Use fixed pattern scale for consistency across devices
+                fractalFluidUV = insideFluidUV * u_patternScale;
                 float insideFluidFractal = formulaPattern(fractalFluidUV, u_time);
                 
                 // Fluid density - make intensity more effective, ensure minimum visibility
@@ -1552,12 +1783,45 @@
                     }
                 }
                 
+                // Bump mapping using fractal pattern
+                // Sample fractal at nearby points to calculate gradient (normal perturbation)
+                // Use pattern-relative epsilon for consistent bump detail
+                float bumpEpsilon = 1.0; // Offset in pattern space (larger = smoother bumps)
+                float bumpHeight = insideFluidFractal;
+                float bumpX = formulaPattern(fractalFluidUV + vec2(bumpEpsilon, 0.0), u_time);
+                float bumpY = formulaPattern(fractalFluidUV + vec2(0.0, bumpEpsilon), u_time);
+                
+                // Calculate gradient (change in bump height)
+                // Normalize by epsilon to get proper gradient magnitude
+                float dx = (bumpX - bumpHeight) / bumpEpsilon;
+                float dy = (bumpY - bumpHeight) / bumpEpsilon;
+                
+                // Surface normal (initially pointing outward from sphere)
+                vec3 surfaceNormal = normalize(insidePos);
+                
+                // Perturb normal using gradient (bump mapping)
+                // Create tangent basis from surface normal
+                vec3 tangent = normalize(cross(surfaceNormal, vec3(0.0, 1.0, 0.0)));
+                if (length(tangent) < 0.1) {
+                    // Fallback if normal is parallel to Y axis
+                    tangent = normalize(cross(surfaceNormal, vec3(1.0, 0.0, 0.0)));
+                }
+                vec3 bitangent = normalize(cross(surfaceNormal, tangent));
+                
+                // Perturb normal using gradient - scale by bump strength
+                // Make the effect much more pronounced - increase multiplier significantly
+                vec3 normalOffset = (tangent * dx + bitangent * dy) * u_bumpStrength * 5.0;
+                vec3 bumpedNormal = normalize(surfaceNormal + normalOffset);
+                
                 // Render smooth fluid with internal light source
                 // Brightness is a percentage (0-100%) controlling internal light intensity
                 float brightnessPercent = u_bright / 100.0; // 0.0 to 1.0
                 
                 // Internal light source position (at center of sphere)
                 vec3 lightPos = vec3(0.0, 0.0, 0.0);
+                
+                // Calculate light direction
+                vec3 lightDir = normalize(lightPos - insidePos);
                 
                 // Calculate distance from current position to light source
                 float distToLight = length(insidePos - lightPos);
@@ -1566,6 +1830,12 @@
                 // Use inverse square law with some tweaking for artistic effect
                 float maxDist = sphereRadius * 0.9; // Maximum distance in sphere
                 float normalizedDist = clamp(distToLight / maxDist, 0.0, 1.0);
+                
+                // Diffuse lighting using bumped normal
+                float NdotL_bumped = max(dot(bumpedNormal, lightDir), 0.0);
+                
+                // Also calculate with original normal for comparison
+                float NdotL_original = max(dot(surfaceNormal, lightDir), 0.0);
                 
                 // Light intensity falls off with distance (closer = brighter)
                 // Brightness controls the overall light intensity
@@ -1576,8 +1846,28 @@
                 // The light illuminates the fluid from within
                 vec3 baseColor = fluidCol * insideFluidDensity;
                 
-                // Apply internal lighting: fluid is illuminated from the center
-                fluidCol = baseColor * lightIntensity * 20.0;
+                // Apply internal lighting with bump mapping: fluid is illuminated from the center
+                // Mix between original and bumped lighting based on bump strength
+                // Make the difference more dramatic - use full range
+                float NdotL_diff = NdotL_bumped - NdotL_original;
+                float finalNdotL = NdotL_original + NdotL_diff * u_bumpStrength;
+                
+                // Enhance the contrast - bump mapping should create more variation
+                // Apply stronger contrast when bump strength is high
+                finalNdotL = mix(finalNdotL, pow(finalNdotL, 0.6), u_bumpStrength * 0.7);
+                
+                float finalIntensity = lightIntensity * (0.05 + finalNdotL * 0.95);
+                fluidCol = baseColor * finalIntensity * 20.0;
+                
+                // Add specular highlight for more pronounced bump effect
+                vec3 viewDir = normalize(-insidePos);
+                vec3 reflectDir = reflect(-lightDir, bumpedNormal);
+                float specular = pow(max(dot(viewDir, reflectDir), 0.0), 12.0) * u_bumpStrength;
+                fluidCol += vec3(1.0, 0.95, 0.9) * specular * lightIntensity * brightnessPercent * 8.0;
+                
+                // Add rim lighting that responds to bump mapping
+                float rim = pow(1.0 - max(dot(viewDir, bumpedNormal), 0.0), 2.0) * u_bumpStrength * 0.8;
+                fluidCol += baseColor * rim * lightIntensity;
                 
                 // Add some emission for glow effect in brighter areas
                 float emission = pow(insideFluidDensity, 0.8) * lightIntensity * brightnessPercent * 3.0;
@@ -1870,6 +2160,8 @@
             rotation3D: gl.getUniformLocation(prog, 'u_rotation3D'),
             cameraRotation: gl.getUniformLocation(prog, 'u_cameraRotation'),
             res: gl.getUniformLocation(prog, 'u_resolution'),
+            patternScale: gl.getUniformLocation(prog, 'u_patternScale'),
+            bumpStrength: gl.getUniformLocation(prog, 'u_bumpStrength'),
             colorScheme: gl.getUniformLocation(prog, 'u_colorScheme'),
             colorRange: gl.getUniformLocation(prog, 'u_colorRange'),
             blendMode: gl.getUniformLocation(prog, 'u_blendMode'),
@@ -1924,7 +2216,6 @@
         let rotation = { pitch: 0, yaw: 0, roll: 0 }; // Grid rotation (current behavior)
         let cameraRotation = { pitch: 0, yaw: 0, roll: 0 }; // Perspective/camera rotation
         let isDragging = false;
-        let isShiftPressed = false;
         let lastMouse = { x: 0, y: 0 };
         const debug = document.getElementById('debug');
         let showGrid = true;
@@ -1947,6 +2238,7 @@
             curvature: 1.0,
             iterations: 40,
             bright: 50,  // New range: 0-100%, default 50% (moderate glow)
+            bumpStrength: 0.3,  // Bump mapping strength (0-1)
             stageShape: 0.0,  // Default: Sphere
             maskShape: 0.0,   // Default: Circle
             displayMode: 0,
@@ -1971,6 +2263,14 @@
                 }
             });
         });
+        
+        const bumpStrengthEl = document.getElementById('bumpStrength');
+        const bumpStrengthVal = document.getElementById('bumpStrengthVal');
+        bumpStrengthEl.addEventListener('input', (e) => {
+            params.bumpStrength = parseFloat(e.target.value);
+            bumpStrengthVal.textContent = params.bumpStrength.toFixed(2);
+            console.log('Bump strength changed to:', params.bumpStrength);
+        });
 
         const stageShapeEl = document.getElementById('stageShape');
         stageShapeEl.addEventListener('change', (e) => {
@@ -1992,6 +2292,26 @@
             const scheme = e.target.value;
             colorScheme = colorSchemes[scheme];
         });
+        
+        // Mobile controls toggle
+        const controlsToggle = document.getElementById('controlsToggle');
+        const controlsPanel = document.getElementById('controls');
+        
+        if (controlsToggle) {
+            controlsToggle.addEventListener('click', (e) => {
+                e.stopPropagation();
+                controlsPanel.classList.toggle('open');
+            });
+            
+            // Close controls when clicking outside on mobile
+            document.addEventListener('click', (e) => {
+                if (window.innerWidth <= 767) {
+                    if (!controlsPanel.contains(e.target) && !controlsToggle.contains(e.target)) {
+                        controlsPanel.classList.remove('open');
+                    }
+                }
+            });
+        }
         
         // Collapsible sections
         const sections = document.querySelectorAll('.control-section');
@@ -2070,37 +2390,81 @@
             blendPercentageVal.textContent = params.blendPercentage.toFixed(0) + '%';
         });
 
-        // Mouse rotation - rotate grid pattern
-        canvas.addEventListener('mousedown', (e) => {
-            isDragging = true;
-            lastMouse.x = e.clientX;
-            lastMouse.y = e.clientY;
-        });
-
-        canvas.addEventListener('mousemove', (e) => {
-            if (isDragging) {
-                const dx = (e.clientX - lastMouse.x) / canvas.width;
-                const dy = (e.clientY - lastMouse.y) / canvas.height;
-                
-                // Rotate grid mapping
-                rotation.yaw += dx * 3.0;
-                rotation.pitch += dy * 3.0;
-                
-                // Clamp pitch to avoid gimbal lock
-                rotation.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, rotation.pitch));
-                
-                lastMouse.x = e.clientX;
-                lastMouse.y = e.clientY;
+        // Mouse/Touch rotation - rotate grid pattern
+        let touchId = null;
+        
+        function getPointerPos(e) {
+            if (e.touches && e.touches.length > 0) {
+                return { x: e.touches[0].clientX, y: e.touches[0].clientY };
             }
-        });
-
-        canvas.addEventListener('mouseup', () => {
-            isDragging = false;
-        });
-
-        canvas.addEventListener('mouseleave', () => {
-            isDragging = false;
-        });
+            return { x: e.clientX, y: e.clientY };
+        }
+        
+        function handleStart(e) {
+            e.preventDefault();
+            const pos = getPointerPos(e);
+            isDragging = true;
+            lastMouse.x = pos.x;
+            lastMouse.y = pos.y;
+            if (e.touches) {
+                touchId = e.touches[0].identifier;
+            }
+        }
+        
+        function handleMove(e) {
+            if (!isDragging) return;
+            e.preventDefault();
+            
+            let touch = null;
+            if (e.touches) {
+                for (let i = 0; i < e.touches.length; i++) {
+                    if (e.touches[i].identifier === touchId) {
+                        touch = e.touches[i];
+                        break;
+                    }
+                }
+                if (!touch && e.touches.length > 0) {
+                    touch = e.touches[0];
+                    touchId = touch.identifier;
+                }
+            }
+            
+            const pos = touch ? { x: touch.clientX, y: touch.clientY } : getPointerPos(e);
+            const dx = (pos.x - lastMouse.x) / canvas.width;
+            const dy = (pos.y - lastMouse.y) / canvas.height;
+            
+            // Rotate grid mapping
+            rotation.yaw += dx * 3.0;
+            rotation.pitch += dy * 3.0;
+            
+            // Clamp pitch to avoid gimbal lock
+            rotation.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, rotation.pitch));
+            
+            lastMouse.x = pos.x;
+            lastMouse.y = pos.y;
+        }
+        
+        function handleEnd(e) {
+            if (e.touches && e.touches.length === 0) {
+                isDragging = false;
+                touchId = null;
+            } else if (!e.touches) {
+                isDragging = false;
+                touchId = null;
+            }
+        }
+        
+        // Mouse events
+        canvas.addEventListener('mousedown', handleStart);
+        canvas.addEventListener('mousemove', handleMove);
+        canvas.addEventListener('mouseup', handleEnd);
+        canvas.addEventListener('mouseleave', handleEnd);
+        
+        // Touch events
+        canvas.addEventListener('touchstart', handleStart, { passive: false });
+        canvas.addEventListener('touchmove', handleMove, { passive: false });
+        canvas.addEventListener('touchend', handleEnd);
+        canvas.addEventListener('touchcancel', handleEnd);
 
         // Initialize fluid simulation textures with some initial state
         function initializeFluid() {
@@ -2166,6 +2530,11 @@
             gl.uniform1f(locs.curvature, params.curvature);
             gl.uniform1f(locs.iterations, params.iterations);
             gl.uniform1f(locs.bright, params.bright);
+            if (locs.bumpStrength !== null) {
+                gl.uniform1f(locs.bumpStrength, params.bumpStrength);
+            } else {
+                console.warn('Bump strength uniform not found!');
+            }
             gl.uniform1f(locs.displayMode, params.displayMode);
             gl.uniform1f(locs.hue, params.hue);
             if (locs.colorScheme !== null) gl.uniform1f(locs.colorScheme, colorScheme);
@@ -2216,6 +2585,15 @@
             }
             
             gl.uniform2f(locs.res, canvas.width, canvas.height);
+            
+            // Use fixed pattern scale based on reference resolution (1080px height)
+            // This ensures patterns maintain the same visual size across all devices
+            // Original scale was: resolution.y * 0.08, so for 1080px that's 86.4
+            // We keep this constant regardless of actual screen size
+            const REFERENCE_PATTERN_SCALE = 1080.0 * 0.08; // 86.4
+            if (locs.patternScale !== null) {
+                gl.uniform1f(locs.patternScale, REFERENCE_PATTERN_SCALE);
+            }
             
             // Update debug info
             if (debug && showGrid) {
