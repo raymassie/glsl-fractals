@@ -463,6 +463,13 @@
                     <span class="value" id="timeSpeedVal">0.3</span>
                 </div>
             </div>
+            <div class="control">
+                <label>Spin Speed</label>
+                <div class="control-row">
+                    <input type="range" id="spinSpeed" min="-5" max="5" step="0.1" value="0">
+                    <span class="value" id="spinSpeedVal">0.0</span>
+                </div>
+            </div>
             </div>
         </div>
         
@@ -890,12 +897,20 @@
             uniform float u_blendPercentage;    // Blend mode strength (0-1)
             uniform float u_stageShape;         // Stage shape selector
             uniform float u_maskShape;          // Mask shape selector
+            uniform float u_spinSpeed;          // Center-axis rotation speed
             varying vec2 v_uv;
             
             mat2 rotate2D(float angle) {
                 float c = cos(angle);
                 float s = sin(angle);
                 return mat2(c, -s, s, c);
+            }
+            
+            // Rotate UV coordinates around center for spinning effect
+            vec2 rotateUV(vec2 uv, float angle) {
+                vec2 centered = uv - 0.5;
+                vec2 rotated = rotate2D(angle) * centered;
+                return rotated + 0.5;
             }
             
             // Sample Navier-Stokes velocity field
@@ -1711,10 +1726,17 @@
                 // shapeToUV applies camera rotation (moves pole) then grid rotation (rotates pattern)
                 vec2 insideUV = shapeToUV(patternPos);
                 
+                // Apply center-axis spinning rotation (like a blender)
+                // This rotates everything around the center, creating a vortex effect
+                float spinAngle = u_time * u_spinSpeed;
+                
+                // Rotate the base UV coordinates
+                vec2 spunUV = rotateUV(insideUV, spinAngle);
+                
                 // Sample fractal at INSIDE position - use fixed scale for consistency across devices
-                vec2 fractalUV = insideUV;
+                vec2 fractalUV = spunUV;
                 // Use fixed pattern scale instead of resolution-dependent scaling
-                fractalUV = insideUV * u_patternScale;
+                fractalUV = spunUV * u_patternScale;
                 float insideFractal = formulaPattern(fractalUV, u_time);
                 
                 // Fractal drives fluid flow
@@ -1724,8 +1746,10 @@
                 ) * insideFractal * 0.3;
                 
                 // Combine with fluid flow - make fluid intensity more effective
+                // Apply fluid distortion in the rotated coordinate space
                 vec2 insideCombinedFlow = fluidDistortion * (0.3 + u_fluidIntensity * 0.4) + insideFractalFlow * (u_fluidIntensity * 1.5);
-                vec2 insideFluidUV = insideUV + insideCombinedFlow * (0.2 + u_fluidIntensity * 0.4);
+                vec2 insideFluidUV = spunUV + insideCombinedFlow * (0.2 + u_fluidIntensity * 0.4);
+                
                 vec2 fractalFluidUV = insideFluidUV;
                 // Use fixed pattern scale for consistency across devices
                 fractalFluidUV = insideFluidUV * u_patternScale;
@@ -1788,8 +1812,11 @@
                 // Use pattern-relative epsilon for consistent bump detail
                 float bumpEpsilon = 1.0; // Offset in pattern space (larger = smoother bumps)
                 float bumpHeight = insideFluidFractal;
-                float bumpX = formulaPattern(fractalFluidUV + vec2(bumpEpsilon, 0.0), u_time);
-                float bumpY = formulaPattern(fractalFluidUV + vec2(0.0, bumpEpsilon), u_time);
+                // Sample at nearby points (already in rotated space from spunUV)
+                vec2 bumpUVX = (insideFluidUV + vec2(bumpEpsilon / u_patternScale, 0.0)) * u_patternScale;
+                vec2 bumpUVY = (insideFluidUV + vec2(0.0, bumpEpsilon / u_patternScale)) * u_patternScale;
+                float bumpX = formulaPattern(bumpUVX, u_time);
+                float bumpY = formulaPattern(bumpUVY, u_time);
                 
                 // Calculate gradient (change in bump height)
                 // Normalize by epsilon to get proper gradient magnitude
@@ -2162,6 +2189,7 @@
             res: gl.getUniformLocation(prog, 'u_resolution'),
             patternScale: gl.getUniformLocation(prog, 'u_patternScale'),
             bumpStrength: gl.getUniformLocation(prog, 'u_bumpStrength'),
+            spinSpeed: gl.getUniformLocation(prog, 'u_spinSpeed'),
             colorScheme: gl.getUniformLocation(prog, 'u_colorScheme'),
             colorRange: gl.getUniformLocation(prog, 'u_colorRange'),
             blendMode: gl.getUniformLocation(prog, 'u_blendMode'),
@@ -2239,6 +2267,7 @@
             iterations: 40,
             bright: 50,  // New range: 0-100%, default 50% (moderate glow)
             bumpStrength: 0.3,  // Bump mapping strength (0-1)
+            spinSpeed: 0.0,  // Center-axis rotation speed (radians per second)
             stageShape: 0.0,  // Default: Sphere
             maskShape: 0.0,   // Default: Circle
             displayMode: 0,
@@ -2262,6 +2291,13 @@
                     val.textContent = params[id].toFixed(id === 'iterations' ? 0 : 2);
                 }
             });
+        });
+        
+        const spinSpeedEl = document.getElementById('spinSpeed');
+        const spinSpeedVal = document.getElementById('spinSpeedVal');
+        spinSpeedEl.addEventListener('input', (e) => {
+            params.spinSpeed = parseFloat(e.target.value);
+            spinSpeedVal.textContent = params.spinSpeed.toFixed(1);
         });
         
         const bumpStrengthEl = document.getElementById('bumpStrength');
@@ -2534,6 +2570,9 @@
                 gl.uniform1f(locs.bumpStrength, params.bumpStrength);
             } else {
                 console.warn('Bump strength uniform not found!');
+            }
+            if (locs.spinSpeed !== null) {
+                gl.uniform1f(locs.spinSpeed, params.spinSpeed);
             }
             gl.uniform1f(locs.displayMode, params.displayMode);
             gl.uniform1f(locs.hue, params.hue);
