@@ -125,7 +125,7 @@
         <div class="control">
             <label>Iterations</label>
             <div class="control-row">
-                <input type="range" id="iterations" min="10" max="100" step="5" value="40">
+                <input type="range" id="iterations" min="1" max="100" step="1" value="40">
                 <span class="value" id="iterationsVal">40</span>
             </div>
         </div>
@@ -196,17 +196,17 @@
             </div>
         </div>
         <div class="control">
-            <label>Camera View</label>
+            <label>Fractal Type</label>
             <div class="control-row">
-                <select id="cameraView">
-                    <option value="custom">Custom</option>
-                    <option value="front" selected>Front</option>
-                    <option value="back">Back</option>
-                    <option value="top">Top</option>
-                    <option value="bottom">Bottom</option>
-                    <option value="left">Left</option>
-                    <option value="right">Right</option>
-                    <option value="isometric">Isometric</option>
+                <select id="fractalType">
+                    <option value="0" selected>Wave Pattern</option>
+                    <option value="1">Plasma Energy</option>
+                    <option value="2">Flow Field</option>
+                    <option value="3">Organic Growth</option>
+                    <option value="4">Distortion Waves</option>
+                    <option value="5">Spiral</option>
+                    <option value="6">Voronoi</option>
+                    <option value="7">Noise Clouds</option>
                 </select>
             </div>
         </div>
@@ -229,7 +229,263 @@
         resize();
         window.addEventListener('resize', resize);
 
+        // ============================================
+        // NAVIER-STOKES FLUID SIMULATION SETUP
+        // ============================================
+        
+        // Simulation resolution (lower than screen for performance)
+        const SIM_WIDTH = 256;
+        const SIM_HEIGHT = 256;
+        
+        // Check for required WebGL extensions
+        const extFloat = gl.getExtension('OES_texture_float');
+        const extFloatLinear = gl.getExtension('OES_texture_float_linear');
+        const extColorBufferFloat = gl.getExtension('WEBGL_color_buffer_float');
+        
+        if (!extFloat) {
+            console.warn('OES_texture_float not supported - using fallback');
+        }
+        
+        // Create textures for velocity field (ping-pong)
+        function createTexture(width, height) {
+            const tex = gl.createTexture();
+            gl.bindTexture(gl.TEXTURE_2D, tex);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, 
+                         extFloat ? gl.FLOAT : gl.UNSIGNED_BYTE, null);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+            return tex;
+        }
+        
+        // Create framebuffers
+        function createFramebuffer(texture) {
+            const fb = gl.createFramebuffer();
+            gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+            gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0);
+            if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
+                console.error('Framebuffer incomplete');
+            }
+            return fb;
+        }
+        
+        // Velocity field textures (ping-pong)
+        const velocityTexA = createTexture(SIM_WIDTH, SIM_HEIGHT);
+        const velocityTexB = createTexture(SIM_WIDTH, SIM_HEIGHT);
+        const velocityFBA = createFramebuffer(velocityTexA);
+        const velocityFBB = createFramebuffer(velocityTexB);
+        
+        // Pressure field textures (ping-pong)
+        const pressureTexA = createTexture(SIM_WIDTH, SIM_HEIGHT);
+        const pressureTexB = createTexture(SIM_WIDTH, SIM_HEIGHT);
+        const pressureFBA = createFramebuffer(pressureTexA);
+        const pressureFBB = createFramebuffer(pressureTexB);
+        
+        // Divergence texture
+        const divergenceTex = createTexture(SIM_WIDTH, SIM_HEIGHT);
+        const divergenceFB = createFramebuffer(divergenceTex);
+        
+        // Dye/density texture (for visualization)
+        const dyeTexA = createTexture(SIM_WIDTH, SIM_HEIGHT);
+        const dyeTexB = createTexture(SIM_WIDTH, SIM_HEIGHT);
+        const dyeFBA = createFramebuffer(dyeTexA);
+        const dyeFBB = createFramebuffer(dyeTexB);
+        
+        // Ping-pong state
+        let velocityRead = velocityTexA;
+        let velocityWrite = velocityTexB;
+        let pressureRead = pressureTexA;
+        let pressureWrite = pressureTexB;
+        let dyeRead = dyeTexA;
+        let dyeWrite = dyeTexB;
+        
+        function swapVelocity() {
+            [velocityRead, velocityWrite] = [velocityWrite, velocityRead];
+        }
+        
+        function swapPressure() {
+            [pressureRead, pressureWrite] = [pressureWrite, pressureRead];
+        }
+        
+        function swapDye() {
+            [dyeRead, dyeWrite] = [dyeWrite, dyeRead];
+        }
+        
+        // Full-screen quad for rendering to textures
+        const quadBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, quadBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1,1,-1,-1,1,1,1]), gl.STATIC_DRAW);
+        
         const vs = `attribute vec2 a_pos; varying vec2 v_uv; void main() { gl_Position = vec4(a_pos,0,1); v_uv = a_pos*0.5+0.5; }`;
+
+        // ============================================
+        // NAVIER-STOKES SHADER PROGRAMS
+        // ============================================
+        
+        // 1. Advection Shader - transports velocity and dye through the velocity field
+        const advectionFS = `
+            precision highp float;
+            uniform sampler2D u_velocity;
+            uniform sampler2D u_source;
+            uniform vec2 u_resolution;
+            uniform float u_dt;
+            uniform float u_dissipation;
+            varying vec2 v_uv;
+            
+            void main() {
+                vec2 uv = v_uv;
+                vec2 velocity = texture2D(u_velocity, uv).xy;
+                
+                // Semi-Lagrangian advection: trace back in time
+                vec2 advectedPos = uv - velocity * u_dt * u_resolution;
+                
+                // Sample source field at advected position
+                vec4 source = texture2D(u_source, advectedPos);
+                
+                // Apply dissipation (decay)
+                gl_FragColor = source * u_dissipation;
+            }
+        `;
+        
+        // 2. Diffusion Shader - applies viscosity (smooths velocity field)
+        const diffusionFS = `
+            precision highp float;
+            uniform sampler2D u_velocity;
+            uniform vec2 u_resolution;
+            uniform float u_viscosity;
+            uniform float u_dt;
+            varying vec2 v_uv;
+            
+            void main() {
+                vec2 uv = v_uv;
+                vec2 texelSize = 1.0 / u_resolution;
+                
+                // Sample velocity at center and neighbors
+                vec2 center = texture2D(u_velocity, uv).xy;
+                vec2 L = texture2D(u_velocity, uv + vec2(-texelSize.x, 0.0)).xy;
+                vec2 R = texture2D(u_velocity, uv + vec2(texelSize.x, 0.0)).xy;
+                vec2 T = texture2D(u_velocity, uv + vec2(0.0, -texelSize.y)).xy;
+                vec2 B = texture2D(u_velocity, uv + vec2(0.0, texelSize.y)).xy;
+                
+                // Laplacian (diffusion): average of neighbors minus center
+                vec2 laplacian = (L + R + T + B - 4.0 * center);
+                
+                // Apply viscosity diffusion: v = v + viscosity * dt * ∇²v
+                // Higher viscosity = more smoothing/damping
+                float viscosityCoeff = u_viscosity * 10.0; // Scale for visibility
+                vec2 velocity = center + laplacian * viscosityCoeff * u_dt;
+                
+                gl_FragColor = vec4(velocity, 0.0, 1.0);
+            }
+        `;
+        
+        // 3. Divergence Shader - computes divergence of velocity field
+        const divergenceFS = `
+            precision highp float;
+            uniform sampler2D u_velocity;
+            uniform vec2 u_resolution;
+            varying vec2 v_uv;
+            
+            void main() {
+                vec2 uv = v_uv;
+                vec2 texelSize = 1.0 / u_resolution;
+                
+                // Sample velocity at neighboring points
+                float L = texture2D(u_velocity, uv + vec2(-texelSize.x, 0.0)).x;
+                float R = texture2D(u_velocity, uv + vec2(texelSize.x, 0.0)).x;
+                float T = texture2D(u_velocity, uv + vec2(0.0, -texelSize.y)).y;
+                float B = texture2D(u_velocity, uv + vec2(0.0, texelSize.y)).y;
+                
+                // Compute divergence: (∂u/∂x + ∂v/∂y)
+                float divergence = 0.5 * ((R - L) + (T - B));
+                
+                gl_FragColor = vec4(divergence, 0.0, 0.0, 1.0);
+            }
+        `;
+        
+        // 4. Pressure Solver (Jacobi iteration) - solves Poisson equation
+        const pressureFS = `
+            precision highp float;
+            uniform sampler2D u_pressure;
+            uniform sampler2D u_divergence;
+            uniform vec2 u_resolution;
+            varying vec2 v_uv;
+            
+            void main() {
+                vec2 uv = v_uv;
+                vec2 texelSize = 1.0 / u_resolution;
+                
+                // Sample pressure at neighboring points
+                float L = texture2D(u_pressure, uv + vec2(-texelSize.x, 0.0)).x;
+                float R = texture2D(u_pressure, uv + vec2(texelSize.x, 0.0)).x;
+                float T = texture2D(u_pressure, uv + vec2(0.0, -texelSize.y)).x;
+                float B = texture2D(u_pressure, uv + vec2(0.0, texelSize.y)).x;
+                
+                // Sample divergence
+                float div = texture2D(u_divergence, uv).x;
+                
+                // Jacobi iteration: p = (L + R + T + B - div) / 4
+                float pressure = (L + R + T + B - div) * 0.25;
+                
+                gl_FragColor = vec4(pressure, 0.0, 0.0, 1.0);
+            }
+        `;
+        
+        // 5. Gradient Subtraction - makes velocity divergence-free
+        const gradientSubtractFS = `
+            precision highp float;
+            uniform sampler2D u_velocity;
+            uniform sampler2D u_pressure;
+            uniform vec2 u_resolution;
+            varying vec2 v_uv;
+            
+            void main() {
+                vec2 uv = v_uv;
+                vec2 texelSize = 1.0 / u_resolution;
+                
+                // Sample pressure gradient
+                float pL = texture2D(u_pressure, uv + vec2(-texelSize.x, 0.0)).x;
+                float pR = texture2D(u_pressure, uv + vec2(texelSize.x, 0.0)).x;
+                float pT = texture2D(u_pressure, uv + vec2(0.0, -texelSize.y)).x;
+                float pB = texture2D(u_pressure, uv + vec2(0.0, texelSize.y)).x;
+                
+                // Compute pressure gradient
+                vec2 pressureGrad = vec2((pR - pL) * 0.5, (pT - pB) * 0.5);
+                
+                // Subtract gradient from velocity: v = v - ∇p
+                vec2 velocity = texture2D(u_velocity, uv).xy;
+                velocity -= pressureGrad;
+                
+                gl_FragColor = vec4(velocity, 0.0, 1.0);
+            }
+        `;
+        
+        // 6. Add Force Shader - adds external forces to velocity
+        const addForceFS = `
+            precision highp float;
+            uniform sampler2D u_velocity;
+            uniform vec2 u_force;
+            uniform vec2 u_forcePos;
+            uniform vec2 u_resolution;
+            uniform float u_forceRadius;
+            varying vec2 v_uv;
+            
+            void main() {
+                vec2 uv = v_uv;
+                vec2 pos = uv * u_resolution;
+                vec2 diff = pos - u_forcePos;
+                float dist = length(diff);
+                
+                vec2 velocity = texture2D(u_velocity, uv).xy;
+                
+                // Apply force with smooth falloff
+                float forceStrength = exp(-dist * dist / (2.0 * u_forceRadius * u_forceRadius));
+                velocity += u_force * forceStrength;
+                
+                gl_FragColor = vec4(velocity, 0.0, 1.0);
+            }
+        `;
 
         // Hyperbolic display using Poincaré disk model
         const fs = `
@@ -250,6 +506,10 @@
             uniform float u_flowSpeed;
             uniform float u_viscosity;
             uniform float u_showGrid;
+            uniform sampler2D u_velocityField;  // Navier-Stokes velocity texture
+            uniform sampler2D u_dyeField;       // Navier-Stokes dye texture
+            uniform vec2 u_simResolution;       // Simulation texture resolution
+            uniform float u_fractalType;        // Fractal type selector
             varying vec2 v_uv;
             
             mat2 rotate2D(float angle) {
@@ -258,7 +518,21 @@
                 return mat2(c, -s, s, c);
             }
             
-            // Improved noise function for fluid simulation
+            // Sample Navier-Stokes velocity field
+            vec2 fluidFlow(vec2 uv, float time) {
+                // Sample velocity from Navier-Stokes simulation
+                vec2 velocity = texture2D(u_velocityField, uv).xy;
+                
+                // Scale by fluid intensity and flow speed
+                velocity *= u_fluidIntensity * u_flowSpeed;
+                
+                // Viscosity is now handled in the simulation itself (diffusion step)
+                // No need to apply it again here
+                
+                return velocity;
+            }
+            
+            // Noise function for pattern generation
             float noise(vec2 p) {
                 return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
             }
@@ -275,76 +549,6 @@
                 float d = noise(i + vec2(1.0, 1.0));
                 
                 return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
-            }
-            
-            // Curl noise - creates divergence-free flow fields (proper fluid flow)
-            vec2 curlNoise(vec2 p, float time) {
-                float eps = 0.01;
-                float n1 = smoothNoise(p + vec2(0.0, eps));
-                float n2 = smoothNoise(p + vec2(0.0, -eps));
-                float n3 = smoothNoise(p + vec2(eps, 0.0));
-                float n4 = smoothNoise(p + vec2(-eps, 0.0));
-                
-                float curl = (n4 - n3 - (n2 - n1)) / (2.0 * eps);
-                return vec2(n2 - n1, n3 - n4) / (2.0 * eps);
-            }
-            
-            // Modern fluid flow field with advection and pressure effects
-            vec2 fluidFlow(vec2 uv, float time) {
-                // Base flow from curl noise (divergence-free, like real fluids)
-                vec2 flow = vec2(0.0);
-                
-                // Multiple octaves for complex, layered flow
-                float scale1 = 1.2;
-                float scale2 = 2.4;
-                float scale3 = 4.8;
-                float scale4 = 9.6;
-                
-                // Animated positions with different speeds for organic motion
-                vec2 p1 = uv * scale1 + vec2(time * u_flowSpeed * 0.15, time * u_flowSpeed * 0.12);
-                vec2 p2 = uv * scale2 + vec2(time * u_flowSpeed * 0.25, -time * u_flowSpeed * 0.22);
-                vec2 p3 = uv * scale3 + vec2(-time * u_flowSpeed * 0.35, time * u_flowSpeed * 0.28);
-                vec2 p4 = uv * scale4 + vec2(time * u_flowSpeed * 0.45, time * u_flowSpeed * 0.38);
-                
-                // Curl noise creates proper vortices (divergence-free flow)
-                flow += curlNoise(p1, time) * 0.5;
-                flow += curlNoise(p2, time) * 0.35;
-                flow += curlNoise(p3, time) * 0.2;
-                flow += curlNoise(p4, time) * 0.1;
-                
-                // Large-scale vortices - creates major swirling patterns
-                float dist = length(uv);
-                float angle = dist * 2.0 + time * u_flowSpeed * 0.4;
-                mat2 swirl = rotate2D(angle);
-                
-                // Radial flow with pressure waves
-                float pressureWave = sin(dist * 5.0 - time * u_flowSpeed * 0.6) * 
-                                    cos(dist * 3.0 + time * u_flowSpeed * 0.3);
-                vec2 radialFlow = normalize(uv) * pressureWave * 0.4;
-                flow += swirl * radialFlow;
-                
-                // Advection - fluid follows itself (key to realistic motion)
-                vec2 advection = flow * 0.3;
-                vec2 advectedPos = uv - advection * 0.1;
-                vec2 advectedFlow = curlNoise(advectedPos * scale1, time) * 0.2;
-                flow += advectedFlow;
-                
-                // Pressure gradients - creates expansion/contraction
-                float pressure = smoothNoise(uv * 2.0 + time * u_flowSpeed * 0.2);
-                vec2 pressureGrad = vec2(
-                    smoothNoise((uv + vec2(0.01, 0.0)) * 2.0 + time * u_flowSpeed * 0.2) - pressure,
-                    smoothNoise((uv + vec2(0.0, 0.01)) * 2.0 + time * u_flowSpeed * 0.2) - pressure
-                ) * 0.3;
-                flow += pressureGrad;
-                
-                // Apply viscosity (damping/smoothness) - more effective range
-                // At 0: full flow, at 1: very damped (90% reduction)
-                float viscosityFactor = 1.0 - u_viscosity * 0.9;
-                flow *= viscosityFactor;
-                
-                // Scale by intensity - make it more effective
-                // Fluid intensity now has stronger impact on flow magnitude
-                return flow * u_fluidIntensity * 5.0;
             }
             
             // Manual implementations of hyperbolic functions
@@ -409,45 +613,264 @@
                 return vec2(gridRotated.x / denom, gridRotated.y / denom);
             }
             
-            // Fluid-responsive wave pattern - returns normalized 0-1 value with full range
-            float formulaPattern(vec2 uv, float time) {
-                // Scale UV for pattern density - iterations controls detail level
-                float detailScale = u_iterations / 40.0; // Normalize to 40 as baseline
+            // Mandelbrot set
+            // Plasma/Energy pattern - dynamic, flowing energy fields
+            float plasmaEnergyPattern(vec2 uv, float time) {
+                float detailScale = max(1.0, u_iterations) / 40.0;
                 vec2 p = uv * 0.01 * detailScale;
                 
-                // Create multiple independent patterns that cover full range
-                // Iterations affects the frequency/detail of patterns
+                // Multiple sine waves at different frequencies and angles (similar to wave pattern)
+                float v1 = sin(length(p) * 20.0 * detailScale - time * 0.5) * 0.5 + 0.5;
+                float v2 = sin(p.x * 15.0 * detailScale + p.y * (15.0 * 0.8) * detailScale + time * 0.3) * 0.5 + 0.5;
+                float v3 = sin(p.y * 18.0 * detailScale - p.x * (18.0 * 0.55) * detailScale + time * 0.4) * 0.5 + 0.5;
+                
+                // Combine similar to wave pattern for consistent fluid behavior
+                float plasma = v1 * v2 * 0.7 + v3 * 0.3;
+                
+                // Add noise for texture (same as wave pattern)
+                float noise = smoothNoise(p * 8.0 * detailScale + time * 0.2);
+                plasma = mix(plasma, noise, 0.4);
+                
+                // Normalize to match wave pattern's range
+                plasma = abs(plasma - 0.5) * 2.0;
+                plasma = 1.0 - plasma;
+                float original = (v1 + v2 + v3) / 3.0;
+                plasma = mix(plasma, original, 0.5);
+                
+                return clamp(plasma, 0.0, 1.0);
+            }
+            
+            // Flow field pattern - directional flow patterns
+            float flowFieldPattern(vec2 uv, float time) {
+                float detailScale = max(1.0, u_iterations) / 40.0;
+                vec2 p = uv * 0.01 * detailScale;
+                
+                // Use similar structure to wave pattern for consistent fluid behavior
+                float freq1 = 20.0 * detailScale;
+                float freq2 = 15.0 * detailScale;
+                float freq3 = 18.0 * detailScale;
+                
+                // Radial and angular components
+                float dist = length(p);
+                float angle = atan(p.y, p.x);
+                
+                float pattern1 = sin(dist * freq1 - time * 0.5) * 0.5 + 0.5;
+                float pattern2 = sin(angle * 10.0 + dist * freq2 * 0.8 + time * 0.3) * 0.5 + 0.5;
+                float pattern3 = sin(dist * freq3 - angle * 5.0 + time * 0.4) * 0.5 + 0.5;
+                
+                // Combine similar to wave pattern
+                float flow = pattern1 * pattern2 * 0.7 + pattern3 * 0.3;
+                
+                // Add noise for texture
+                float noise = smoothNoise(p * 8.0 * detailScale + time * 0.2);
+                flow = mix(flow, noise, 0.4);
+                
+                // Normalize to match wave pattern's range
+                flow = abs(flow - 0.5) * 2.0;
+                flow = 1.0 - flow;
+                float original = (pattern1 + pattern2 + pattern3) / 3.0;
+                flow = mix(flow, original, 0.5);
+                
+                return clamp(flow, 0.0, 1.0);
+            }
+            
+            // Organic growth pattern - branching, organic structures
+            float organicGrowthPattern(vec2 uv, float time) {
+                float detailScale = max(1.0, u_iterations) / 40.0;
+                vec2 p = uv * 0.01 * detailScale;
+                
+                // Use similar structure to wave pattern but with organic noise
+                float freq1 = 20.0 * detailScale;
+                float freq2 = 15.0 * detailScale;
+                float freq3 = 18.0 * detailScale;
+                
+                // Combine sine waves with noise for organic feel
+                float pattern1 = sin(length(p) * freq1 - time * 0.5) * 0.5 + 0.5;
+                float pattern2 = sin(p.x * freq2 + p.y * (freq2 * 0.8) + time * 0.3) * 0.5 + 0.5;
+                float pattern3 = sin(p.y * freq3 - p.x * (freq3 * 0.55) + time * 0.4) * 0.5 + 0.5;
+                
+                // Add organic noise (more prominent than wave pattern)
+                float organicNoise = smoothNoise(p * 8.0 * detailScale + time * 0.2);
+                
+                // Combine with more noise influence for organic texture
+                float organic = pattern1 * pattern2 * 0.7 + pattern3 * 0.3;
+                organic = mix(organic, organicNoise, 0.6); // More noise for organic feel
+                
+                // Normalize to match wave pattern's range
+                organic = abs(organic - 0.5) * 2.0;
+                organic = 1.0 - organic;
+                float original = (pattern1 + pattern2 + pattern3) / 3.0;
+                organic = mix(organic, original, 0.5);
+                
+                return clamp(organic, 0.0, 1.0);
+            }
+            
+            // Distortion waves pattern - complex wave interference
+            float distortionWavesPattern(vec2 uv, float time) {
+                float detailScale = max(1.0, u_iterations) / 40.0;
+                vec2 p = uv * 0.01 * detailScale;
+                
+                // Use similar structure to wave pattern for consistent fluid behavior
                 float freq1 = 20.0 * detailScale;
                 float freq2 = 15.0 * detailScale;
                 float freq3 = 18.0 * detailScale;
                 
                 float pattern1 = sin(length(p) * freq1 - time * 0.5) * 0.5 + 0.5;
                 float pattern2 = sin(p.x * freq2 + p.y * (freq2 * 0.8) + time * 0.3) * 0.5 + 0.5;
-                float pattern3 = sin(p.y * freq3 - p.x * (freq3 * 0.55) - time * 0.4) * 0.5 + 0.5;
+                float pattern3 = sin(p.y * freq3 - p.x * (freq3 * 0.55) + time * 0.4) * 0.5 + 0.5;
                 
-                // Radial ripples - iterations affects ripple density
+                // Add distortion using noise-warped coordinates
+                vec2 distorted = p + vec2(
+                    smoothNoise(p * 4.0 + time * 0.1) * 0.1,
+                    smoothNoise(p * 4.0 - time * 0.15) * 0.1
+                );
+                float distortedPattern = sin(length(distorted) * freq1 * 0.8 - time * 0.5) * 0.5 + 0.5;
+                
+                // Combine patterns with distortion
+                float distortion = pattern1 * pattern2 * 0.7 + pattern3 * 0.3;
+                distortion = mix(distortion, distortedPattern, 0.3);
+                
+                // Add noise for texture
+                float noise = smoothNoise(p * 8.0 * detailScale + time * 0.2);
+                distortion = mix(distortion, noise, 0.4);
+                
+                // Normalize to match wave pattern's range
+                distortion = abs(distortion - 0.5) * 2.0;
+                distortion = 1.0 - distortion;
+                float original = (pattern1 + pattern2 + pattern3) / 3.0;
+                distortion = mix(distortion, original, 0.5);
+                
+                return clamp(distortion, 0.0, 1.0);
+            }
+            
+            // Spiral pattern
+            float spiralPattern(vec2 uv, float time) {
+                float detailScale = max(1.0, u_iterations) / 40.0;
+                vec2 p = uv * 0.01 * detailScale;
+                
+                // Spiral with similar scale to wave pattern
+                float angle = atan(p.y, p.x);
+                float radius = length(p);
+                
+                float freq1 = 20.0 * detailScale;
+                float freq2 = 15.0 * detailScale;
+                
+                float spiral = sin(radius * freq1 - angle * 10.0 + time * 0.5) * 0.5 + 0.5;
+                float radial = sin(radius * freq2 + time * 0.3) * 0.5 + 0.5;
+                
+                // Combine and normalize similar to wave pattern
+                float pattern = spiral * 0.6 + radial * 0.4;
+                
+                // Add noise for texture
+                float noise = smoothNoise(p * 8.0 * detailScale + time * 0.2);
+                pattern = mix(pattern, noise, 0.4);
+                
+                // Normalize to match wave pattern's range
+                pattern = abs(pattern - 0.5) * 2.0;
+                pattern = 1.0 - pattern;
+                
+                return clamp(pattern, 0.0, 1.0);
+            }
+            
+            // Voronoi pattern
+            float voronoiPattern(vec2 uv, float time) {
+                float detailScale = max(1.0, u_iterations) / 40.0;
+                vec2 p = uv * 0.01 * detailScale * 100.0; // Scale up for Voronoi cells
+                vec2 i = floor(p);
+                vec2 f = fract(p);
+                
+                float minDist = 1.0;
+                for (int y = -1; y <= 1; y++) {
+                    for (int x = -1; x <= 1; x++) {
+                        vec2 neighbor = vec2(float(x), float(y));
+                        vec2 point = vec2(
+                            sin(dot(i + neighbor, vec2(12.9898, 78.233)) + time * 0.1),
+                            cos(dot(i + neighbor, vec2(37.7193, 41.2345)) + time * 0.1)
+                        ) * 0.5 + 0.5;
+                        vec2 diff = neighbor + point - f;
+                        float dist = length(diff);
+                        minDist = min(minDist, dist);
+                    }
+                }
+                
+                // Normalize Voronoi distance to 0-1 range similar to wave pattern
+                minDist = minDist * 2.0; // Scale up for better range
+                minDist = 1.0 - minDist; // Invert so cells are bright
+                
+                return clamp(minDist, 0.0, 1.0);
+            }
+            
+            // Noise clouds pattern
+            float noiseCloudsPattern(vec2 uv, float time) {
+                float detailScale = max(1.0, u_iterations) / 40.0;
+                vec2 p = uv * 0.01 * detailScale;
+                
+                // Use similar scale to wave pattern
+                float n1 = smoothNoise(p * 8.0 * detailScale + time * 0.2);
+                float n2 = smoothNoise(p * 16.0 * detailScale - time * 0.15) * 0.5;
+                float n3 = smoothNoise(p * 32.0 * detailScale + time * 0.1) * 0.25;
+                
+                // Combine noise layers
+                float clouds = n1 + n2 + n3;
+                
+                // Normalize to match wave pattern's range
+                clouds = abs(clouds - 0.5) * 2.0;
+                clouds = 1.0 - clouds;
+                
+                return clamp(clouds, 0.0, 1.0);
+            }
+            
+            // Wave pattern (original)
+            float wavePattern(vec2 uv, float time) {
+                float detailScale = max(1.0, u_iterations) / 40.0;
+                vec2 p = uv * 0.01 * detailScale;
+                
+                float freq1 = 20.0 * detailScale;
+                float freq2 = 15.0 * detailScale;
+                float freq3 = 18.0 * detailScale;
+                
+                float pattern1 = sin(length(p) * freq1 - time * 0.5) * 0.5 + 0.5;
+                float pattern2 = sin(p.x * freq2 + p.y * (freq2 * 0.8) + time * 0.3) * 0.5 + 0.5;
+                float pattern3 = sin(p.y * freq3 - p.x * (freq3 * 0.55) + time * 0.4) * 0.5 + 0.5;
+                
                 float dist = length(p);
                 float ripple = sin(dist * 30.0 * detailScale - time * 0.6) * 0.5 + 0.5;
-                
-                // Add noise for texture - iterations affects noise detail
                 float noise = smoothNoise(p * 8.0 * detailScale + time * 0.2);
                 
-                // Combine with multiplication to create more contrast and full range
                 float pattern = pattern1 * pattern2 * 0.7 + pattern3 * 0.3;
                 pattern = mix(pattern, ripple, 0.3);
                 pattern = mix(pattern, noise, 0.4);
                 
-                // Use a combination that ensures full range coverage
-                // Add absolute differences to create more variation
-                pattern = abs(pattern - 0.5) * 2.0; // Creates 0-1 range with more extremes
-                pattern = 1.0 - pattern; // Invert to get full range
-                
-                // Add back some of the original to ensure smooth transitions
+                pattern = abs(pattern - 0.5) * 2.0;
+                pattern = 1.0 - pattern;
                 float original = (pattern1 + pattern2 + pattern3) / 3.0;
                 pattern = mix(pattern, original, 0.5);
                 
-                // Final normalization
                 return clamp(pattern, 0.0, 1.0);
+            }
+            
+            // Main fractal pattern selector
+            float formulaPattern(vec2 uv, float time) {
+                // Use step() to prevent optimization - ensures uniform is always read
+                float type = u_fractalType;
+                
+                if (type < 0.5) {
+                    return wavePattern(uv, time);
+                } else if (type < 1.5) {
+                    return plasmaEnergyPattern(uv, time);
+                } else if (type < 2.5) {
+                    return flowFieldPattern(uv, time);
+                } else if (type < 3.5) {
+                    return organicGrowthPattern(uv, time);
+                } else if (type < 4.5) {
+                    return distortionWavesPattern(uv, time);
+                } else if (type < 5.5) {
+                    return spiralPattern(uv, time);
+                } else if (type < 6.5) {
+                    return voronoiPattern(uv, time);
+                } else {
+                    return noiseCloudsPattern(uv, time);
+                }
             }
             
             // Procedural color palette
@@ -641,8 +1064,11 @@
                 // sphereToUV applies camera rotation (moves pole) then grid rotation (rotates pattern)
                 vec2 insideUV = sphereToUV(patternPos);
                 
-                // Sample fractal at INSIDE position - use smoother, lower frequency
-                float insideFractal = formulaPattern(insideUV * u_resolution.y * 0.08, u_time);
+                // Sample fractal at INSIDE position - adjust scale based on fractal type
+                vec2 fractalUV = insideUV;
+                // All procedural patterns use the same scale
+                fractalUV = insideUV * u_resolution.y * 0.08;
+                float insideFractal = formulaPattern(fractalUV, u_time);
                 
                 // Fractal drives fluid flow
                 vec2 insideFractalFlow = vec2(
@@ -653,7 +1079,10 @@
                 // Combine with fluid flow - make fluid intensity more effective
                 vec2 insideCombinedFlow = fluidDistortion * (0.3 + u_fluidIntensity * 0.4) + insideFractalFlow * (u_fluidIntensity * 1.5);
                 vec2 insideFluidUV = insideUV + insideCombinedFlow * (0.2 + u_fluidIntensity * 0.4);
-                float insideFluidFractal = formulaPattern(insideFluidUV * u_resolution.y * 0.08, u_time);
+                vec2 fractalFluidUV = insideFluidUV;
+                // All procedural patterns use the same scale
+                fractalFluidUV = insideFluidUV * u_resolution.y * 0.08;
+                float insideFluidFractal = formulaPattern(fractalFluidUV, u_time);
                 
                 // Fluid density - make intensity more effective, ensure minimum visibility
                 float insideFluidDensity = insideFluidFractal * (0.3 + u_fluidIntensity * 0.7) + 0.15;
@@ -815,6 +1244,176 @@
             }
             return s;
         }
+        
+        function createProgram(vsSrc, fsSrc) {
+            const vsh = compileShader(vsSrc, gl.VERTEX_SHADER);
+            const fsh = compileShader(fsSrc, gl.FRAGMENT_SHADER);
+            if (!vsh || !fsh) return null;
+            const prog = gl.createProgram();
+            gl.attachShader(prog, vsh);
+            gl.attachShader(prog, fsh);
+            gl.linkProgram(prog);
+            if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+                console.error('Program link error:', gl.getProgramInfoLog(prog));
+                return null;
+            }
+            return prog;
+        }
+        
+        // Compile Navier-Stokes shader programs
+        const advectionProg = createProgram(vs, advectionFS);
+        const diffusionProg = createProgram(vs, diffusionFS);
+        const divergenceProg = createProgram(vs, divergenceFS);
+        const pressureProg = createProgram(vs, pressureFS);
+        const gradientSubtractProg = createProgram(vs, gradientSubtractFS);
+        const addForceProg = createProgram(vs, addForceFS);
+        
+        // Helper function to render to texture
+        function renderToTexture(program, uniforms, targetFB, width, height) {
+            gl.bindFramebuffer(gl.FRAMEBUFFER, targetFB);
+            gl.viewport(0, 0, width, height);
+            gl.useProgram(program);
+            
+            let texUnit = 0;
+            
+            // Set uniforms
+            for (const [name, value] of Object.entries(uniforms)) {
+                const loc = gl.getUniformLocation(program, name);
+                if (loc === null) continue;
+                
+                if (typeof value === 'number') {
+                    gl.uniform1f(loc, value);
+                } else if (value instanceof Array && value.length === 2) {
+                    gl.uniform2f(loc, value[0], value[1]);
+                } else if (value instanceof WebGLTexture) {
+                    gl.activeTexture(gl.TEXTURE0 + texUnit);
+                    gl.bindTexture(gl.TEXTURE_2D, value);
+                    gl.uniform1i(loc, texUnit);
+                    texUnit++;
+                }
+            }
+            
+            // Draw full-screen quad
+            gl.bindBuffer(gl.ARRAY_BUFFER, quadBuffer);
+            const posLoc = gl.getAttribLocation(program, 'a_pos');
+            gl.enableVertexAttribArray(posLoc);
+            gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
+            gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+        }
+        
+        // Navier-Stokes simulation step
+        function simulateFluid(dt) {
+            if (!advectionProg || !diffusionProg || !divergenceProg || !pressureProg || !gradientSubtractProg) {
+                console.warn('Navier-Stokes shaders not compiled, skipping simulation');
+                return;
+            }
+            
+            const simRes = [SIM_WIDTH, SIM_HEIGHT];
+            // Base dissipation (energy loss over time)
+            const baseDissipation = 0.95;
+            const dissipation = baseDissipation; // Keep constant
+            const dyeDissipation = 0.97; // Keep constant
+            const pressureIterations = 20; // Number of Jacobi iterations
+            
+            // Get correct framebuffers
+            const velocityFBWrite = velocityWrite === velocityTexA ? velocityFBA : velocityFBB;
+            const pressureFBWrite = pressureWrite === pressureTexA ? pressureFBA : pressureFBB;
+            const dyeFBWrite = dyeWrite === dyeTexA ? dyeFBA : dyeFBB;
+            
+            // Step 1: Advect velocity
+            renderToTexture(advectionProg, {
+                'u_velocity': velocityRead,
+                'u_source': velocityRead,
+                'u_resolution': simRes,
+                'u_dt': dt * params.flowSpeed, // Flow speed affects time step
+                'u_dissipation': dissipation
+            }, velocityFBWrite, SIM_WIDTH, SIM_HEIGHT);
+            swapVelocity();
+            
+            // Step 1.5: Apply viscosity diffusion (this is what viscosity actually does!)
+            if (params.viscosity > 0.01) {
+                // Run diffusion multiple times for stronger effect
+                const diffusionIterations = Math.floor(params.viscosity * 4) + 1;
+                for (let i = 0; i < diffusionIterations; i++) {
+                    renderToTexture(diffusionProg, {
+                        'u_velocity': velocityRead,
+                        'u_resolution': simRes,
+                        'u_viscosity': params.viscosity,
+                        'u_dt': dt
+                    }, velocityFBWrite, SIM_WIDTH, SIM_HEIGHT);
+                    swapVelocity();
+                }
+            }
+            
+            // Add forces based on fluid intensity (creates swirling motion)
+            if (params.fluidIntensity > 0.1 && addForceProg) {
+                // Add multiple force points for swirling effect
+                const numForces = 3;
+                for (let i = 0; i < numForces; i++) {
+                    const angle = (time * 0.5 + i * 2.0 * Math.PI / numForces) * params.flowSpeed;
+                    const radius = 0.3;
+                    const forcePos = [
+                        SIM_WIDTH * 0.5 + Math.cos(angle) * radius * SIM_WIDTH,
+                        SIM_HEIGHT * 0.5 + Math.sin(angle) * radius * SIM_HEIGHT
+                    ];
+                    const force = [
+                        Math.cos(angle + Math.PI / 2) * params.fluidIntensity * 0.15,
+                        Math.sin(angle + Math.PI / 2) * params.fluidIntensity * 0.15
+                    ];
+                    
+                    renderToTexture(addForceProg, {
+                        'u_velocity': velocityRead,
+                        'u_force': force,
+                        'u_forcePos': forcePos,
+                        'u_resolution': simRes,
+                        'u_forceRadius': 40.0
+                    }, velocityFBWrite, SIM_WIDTH, SIM_HEIGHT);
+                    swapVelocity();
+                }
+            }
+            
+            // Step 2: Compute divergence
+            renderToTexture(divergenceProg, {
+                'u_velocity': velocityRead,
+                'u_resolution': simRes
+            }, divergenceFB, SIM_WIDTH, SIM_HEIGHT);
+            
+            // Step 3: Solve pressure (Jacobi iterations)
+            // Clear pressure
+            gl.bindFramebuffer(gl.FRAMEBUFFER, pressureFBWrite);
+            gl.clearColor(0, 0, 0, 1);
+            gl.clear(gl.COLOR_BUFFER_BIT);
+            swapPressure();
+            
+            for (let i = 0; i < pressureIterations; i++) {
+                const currentPressureFBWrite = pressureWrite === pressureTexA ? pressureFBA : pressureFBB;
+                renderToTexture(pressureProg, {
+                    'u_pressure': pressureRead,
+                    'u_divergence': divergenceTex,
+                    'u_resolution': simRes
+                }, currentPressureFBWrite, SIM_WIDTH, SIM_HEIGHT);
+                swapPressure();
+            }
+            
+            // Step 4: Subtract pressure gradient from velocity
+            const currentVelocityFBWrite = velocityWrite === velocityTexA ? velocityFBA : velocityFBB;
+            renderToTexture(gradientSubtractProg, {
+                'u_velocity': velocityRead,
+                'u_pressure': pressureRead,
+                'u_resolution': simRes
+            }, currentVelocityFBWrite, SIM_WIDTH, SIM_HEIGHT);
+            swapVelocity();
+            
+            // Step 5: Advect dye through velocity field
+            renderToTexture(advectionProg, {
+                'u_velocity': velocityRead,
+                'u_source': dyeRead,
+                'u_resolution': simRes,
+                'u_dt': dt * params.flowSpeed, // Flow speed affects dye advection too
+                'u_dissipation': dyeDissipation
+            }, dyeFBWrite, SIM_WIDTH, SIM_HEIGHT);
+            swapDye();
+        }
 
         const vsh = compileShader(vs, gl.VERTEX_SHADER);
         const fsh = compileShader(fs, gl.FRAGMENT_SHADER);
@@ -844,7 +1443,11 @@
             fluidIntensity: gl.getUniformLocation(prog, 'u_fluidIntensity'),
             flowSpeed: gl.getUniformLocation(prog, 'u_flowSpeed'),
             viscosity: gl.getUniformLocation(prog, 'u_viscosity'),
-            showGrid: gl.getUniformLocation(prog, 'u_showGrid')
+            showGrid: gl.getUniformLocation(prog, 'u_showGrid'),
+            velocityField: gl.getUniformLocation(prog, 'u_velocityField'),
+            dyeField: gl.getUniformLocation(prog, 'u_dyeField'),
+            simResolution: gl.getUniformLocation(prog, 'u_simResolution'),
+            fractalType: gl.getUniformLocation(prog, 'u_fractalType')
         };
         
         // Debug: Check if uniforms were found
@@ -858,6 +1461,11 @@
         }
         if (locs.colorRange === null) {
             console.error('Color range uniform not found! Check shader.');
+        }
+        if (locs.fractalType === null) {
+            console.error('Fractal type uniform not found! Check shader.');
+        } else {
+            console.log('Fractal type uniform found at location:', locs.fractalType);
         }
 
         // 3D rotation using Euler angles
@@ -942,52 +1550,45 @@
             hideGridEl.textContent = showGrid ? 'Hide Grid' : 'Show Grid';
         });
         
-        // Camera view presets
-        const cameraViews = {
-            custom: null, // No preset, use current cameraRotation
-            front: { pitch: 0, yaw: 0, roll: 0 },
-            back: { pitch: 0, yaw: Math.PI, roll: 0 },
-            top: { pitch: -Math.PI / 2, yaw: 0, roll: 0 },
-            bottom: { pitch: Math.PI / 2, yaw: 0, roll: 0 },
-            left: { pitch: 0, yaw: Math.PI / 2, roll: 0 },
-            right: { pitch: 0, yaw: -Math.PI / 2, roll: 0 },
-            isometric: { pitch: -Math.PI / 4, yaw: Math.PI / 4, roll: 0 }
-        };
-        
-        const cameraViewEl = document.getElementById('cameraView');
-        cameraViewEl.addEventListener('change', (e) => {
-            const view = e.target.value;
-            const preset = cameraViews[view];
-            if (preset) {
-                cameraRotation.pitch = preset.pitch;
-                cameraRotation.yaw = preset.yaw;
-                cameraRotation.roll = preset.roll;
-            }
-        });
-        
-        ['fluid', 'flowSpeed', 'viscosity', 'colorRange'].forEach(id => {
-            const el = document.getElementById(id);
-            const val = document.getElementById(id + 'Val');
-            el.addEventListener('input', (e) => {
-                params[id] = parseFloat(e.target.value);
-                val.textContent = params[id].toFixed(2);
+        // Fractal type selector
+        const fractalTypeEl = document.getElementById('fractalType');
+        let fractalType = 0.0; // Initialize as float
+        if (fractalTypeEl) {
+            fractalTypeEl.addEventListener('change', (e) => {
+                fractalType = parseFloat(e.target.value);
+                console.log('Fractal type changed to:', fractalType, 'uniform location:', locs.fractalType);
             });
-        });
-
-        // Mouse rotation
-        // Track shift key state
-        window.addEventListener('keydown', (e) => {
-            if (e.key === 'Shift') {
-                isShiftPressed = true;
-            }
+        } else {
+            console.error('Fractal type element not found!');
+        }
+        
+        // Handle controls with custom value display IDs
+        const fluidEl = document.getElementById('fluid');
+        const flowSpeedEl = document.getElementById('flowSpeed');
+        const viscosityEl = document.getElementById('viscosity');
+        const colorRangeEl = document.getElementById('colorRange');
+        
+        fluidEl.addEventListener('input', (e) => {
+            params.fluidIntensity = parseFloat(e.target.value);
+            document.getElementById('fluidVal').textContent = params.fluidIntensity.toFixed(1);
         });
         
-        window.addEventListener('keyup', (e) => {
-            if (e.key === 'Shift') {
-                isShiftPressed = false;
-            }
+        flowSpeedEl.addEventListener('input', (e) => {
+            params.flowSpeed = parseFloat(e.target.value);
+            document.getElementById('flowVal').textContent = params.flowSpeed.toFixed(1);
+        });
+        
+        viscosityEl.addEventListener('input', (e) => {
+            params.viscosity = parseFloat(e.target.value);
+            document.getElementById('viscVal').textContent = params.viscosity.toFixed(2);
+        });
+        
+        colorRangeEl.addEventListener('input', (e) => {
+            params.colorRange = parseFloat(e.target.value);
+            document.getElementById('colorRangeVal').textContent = params.colorRange.toFixed(1);
         });
 
+        // Mouse rotation - rotate grid pattern
         canvas.addEventListener('mousedown', (e) => {
             isDragging = true;
             lastMouse.x = e.clientX;
@@ -999,33 +1600,12 @@
                 const dx = (e.clientX - lastMouse.x) / canvas.width;
                 const dy = (e.clientY - lastMouse.y) / canvas.height;
                 
-                // Check shift key directly from the event (more reliable)
-                if (e.shiftKey) {
-                    // Shift + Click: Rotate camera perspective
-                    // Invert dx/dy to make dragging feel natural (drag right = rotate right)
-                    cameraRotation.yaw -= dx * 3.0;
-                    cameraRotation.pitch += dy * 3.0;
-                    
-                    // Clamp pitch to avoid gimbal lock
-                    cameraRotation.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, cameraRotation.pitch));
-                    
-                    // Switch to custom view when manually rotating
-                    cameraViewEl.value = 'custom';
-                    
-                    // Debug
-                    console.log('Camera rotation updated:', {
-                        pitch: cameraRotation.pitch.toFixed(3),
-                        yaw: cameraRotation.yaw.toFixed(3),
-                        roll: cameraRotation.roll.toFixed(3)
-                    });
-                } else {
-                    // Normal Click: Rotate grid mapping (existing behavior)
-                    rotation.yaw += dx * 3.0;
-                    rotation.pitch += dy * 3.0;
-                    
-                    // Clamp pitch to avoid gimbal lock
-                    rotation.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, rotation.pitch));
-                }
+                // Rotate grid mapping
+                rotation.yaw += dx * 3.0;
+                rotation.pitch += dy * 3.0;
+                
+                // Clamp pitch to avoid gimbal lock
+                rotation.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, rotation.pitch));
                 
                 lastMouse.x = e.clientX;
                 lastMouse.y = e.clientY;
@@ -1040,8 +1620,59 @@
             isDragging = false;
         });
 
+        // Initialize fluid simulation textures with some initial state
+        function initializeFluid() {
+            // Initialize velocity with some initial swirling motion
+            gl.bindFramebuffer(gl.FRAMEBUFFER, velocityFBA);
+            gl.viewport(0, 0, SIM_WIDTH, SIM_HEIGHT);
+            gl.clearColor(0, 0, 0, 1);
+            gl.clear(gl.COLOR_BUFFER_BIT);
+            
+            // Add initial forces to get fluid moving
+            if (addForceProg) {
+                const simRes = [SIM_WIDTH, SIM_HEIGHT];
+                // Add a few initial swirls
+                for (let i = 0; i < 4; i++) {
+                    const angle = i * Math.PI / 2;
+                    const forcePos = [
+                        SIM_WIDTH * 0.5 + Math.cos(angle) * SIM_WIDTH * 0.2,
+                        SIM_HEIGHT * 0.5 + Math.sin(angle) * SIM_HEIGHT * 0.2
+                    ];
+                    const force = [
+                        Math.cos(angle + Math.PI / 2) * 0.05,
+                        Math.sin(angle + Math.PI / 2) * 0.05
+                    ];
+                    
+                    renderToTexture(addForceProg, {
+                        'u_velocity': velocityRead,
+                        'u_force': force,
+                        'u_forcePos': forcePos,
+                        'u_resolution': simRes,
+                        'u_forceRadius': 40.0
+                    }, velocityFBA, SIM_WIDTH, SIM_HEIGHT);
+                }
+            }
+            
+            // Initialize dye with some pattern
+            gl.bindFramebuffer(gl.FRAMEBUFFER, dyeFBA);
+            gl.viewport(0, 0, SIM_WIDTH, SIM_HEIGHT);
+            gl.clearColor(0.5, 0.5, 0.5, 1);
+            gl.clear(gl.COLOR_BUFFER_BIT);
+        }
+        
+        // Initialize on startup
+        initializeFluid();
+        
         function render() {
             time += 0.016 * params.timeSpeed;
+            
+            // Run Navier-Stokes simulation
+            const dt = 0.016 * params.timeSpeed;
+            simulateFluid(dt);
+            
+            // Switch back to main framebuffer for final rendering
+            gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+            gl.viewport(0, 0, canvas.width, canvas.height);
             
             gl.useProgram(prog);
             gl.bindBuffer(gl.ARRAY_BUFFER, buf);
@@ -1062,6 +1693,26 @@
             gl.uniform1f(locs.viscosity, params.viscosity);
             gl.uniform1f(locs.showGrid, showGrid ? 1.0 : 0.0);
             
+            // Set Navier-Stokes texture uniforms
+            if (locs.velocityField !== null) {
+                gl.activeTexture(gl.TEXTURE0);
+                gl.bindTexture(gl.TEXTURE_2D, velocityRead);
+                gl.uniform1i(locs.velocityField, 0);
+            }
+            if (locs.dyeField !== null) {
+                gl.activeTexture(gl.TEXTURE1);
+                gl.bindTexture(gl.TEXTURE_2D, dyeRead);
+                gl.uniform1i(locs.dyeField, 1);
+            }
+            if (locs.simResolution !== null) {
+                gl.uniform2f(locs.simResolution, SIM_WIDTH, SIM_HEIGHT);
+            }
+            if (locs.fractalType !== null) {
+                gl.uniform1f(locs.fractalType, fractalType);
+            } else {
+                console.warn('Fractal type uniform is null! Cannot change fractal type.');
+            }
+            
             // Set grid rotation matrix (pattern rotation)
             const rotMat = rotationMatrix3D(rotation.pitch, rotation.yaw, rotation.roll);
             gl.uniformMatrix3fv(locs.rotation3D, false, rotMat);
@@ -1078,7 +1729,7 @@
             
             // Update debug info
             if (debug && showGrid) {
-                debug.textContent = `Time: ${time.toFixed(2)}\nRes: ${canvas.width}x${canvas.height}\nZoom: ${params.zoom.toFixed(2)}\nMode: ${params.displayMode === 0 ? 'Hyperbolic' : params.displayMode === 1 ? 'Parabolic' : 'Elliptical'}`;
+                debug.textContent = `Time: ${time.toFixed(2)}\nRes: ${canvas.width}x${canvas.height}\nZoom: ${params.zoom.toFixed(2)}\nMode: ${params.displayMode === 0 ? 'Hyperbolic' : params.displayMode === 1 ? 'Parabolic' : 'Elliptical'}\nNavier-Stokes: ON`;
             }
             
             gl.clearColor(0, 0, 0, 1);
